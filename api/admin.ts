@@ -498,6 +498,11 @@ function renderHtml(data: AdminDashboardData): string {
     }
 
     * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+    }
     html { min-width: 320px; }
     body {
       margin: 0;
@@ -507,6 +512,12 @@ function renderHtml(data: AdminDashboardData): string {
       letter-spacing: 0;
     }
 
+    main, section, article, div, form, table, tbody, tr, td, dl, dd {
+      min-width: 0;
+    }
+    p, h1, h2, h3, span, strong, small, a, button, input, select, dd, td {
+      overflow-wrap: anywhere;
+    }
     a { color: inherit; }
     .page {
       width: min(1480px, calc(100% - 32px));
@@ -562,6 +573,8 @@ function renderHtml(data: AdminDashboardData): string {
     }
     input, select, button, .button {
       width: 100%;
+      max-width: 100%;
+      min-width: 0;
       min-height: 38px;
       border: 1px solid var(--line-strong);
       border-radius: 6px;
@@ -609,6 +622,7 @@ function renderHtml(data: AdminDashboardData): string {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
       gap: 12px;
       margin-bottom: 10px;
     }
@@ -698,6 +712,7 @@ function renderHtml(data: AdminDashboardData): string {
       padding-bottom: 12px;
       margin-bottom: 12px;
     }
+    .ticket-head > div { min-width: 0; }
     .ticket-head p { color: var(--muted); margin-top: 4px; }
     .code {
       display: inline-block;
@@ -710,12 +725,13 @@ function renderHtml(data: AdminDashboardData): string {
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      max-width: 100%;
       border-radius: 999px;
       min-height: 26px;
       padding: 4px 9px;
       font-size: 12px;
       font-weight: 800;
-      white-space: nowrap;
+      text-align: center;
     }
     .pill.ok { color: var(--ok); background: var(--ok-bg); }
     .pill.bad { color: var(--bad); background: var(--bad-bg); }
@@ -748,6 +764,7 @@ function renderHtml(data: AdminDashboardData): string {
       gap: 10px;
       flex-wrap: wrap;
       justify-content: flex-end;
+      min-width: 0;
     }
     .logout {
       display: inline-flex;
@@ -792,10 +809,11 @@ function renderHtml(data: AdminDashboardData): string {
       cursor: pointer;
       font-weight: 800;
       min-height: 30px;
+      overflow-wrap: anywhere;
     }
     .games {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
       gap: 10px;
       margin: 10px 0 12px;
     }
@@ -816,11 +834,12 @@ function renderHtml(data: AdminDashboardData): string {
     .game-top strong { color: var(--text); font-size: 14px; }
     .match {
       display: grid;
-      grid-template-columns: 1fr auto 1fr;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
       gap: 8px;
       align-items: center;
       margin-bottom: 10px;
     }
+    .match strong { min-width: 0; overflow-wrap: anywhere; }
     .match strong:last-child { text-align: right; }
     .match span { color: var(--muted); }
     .game-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -832,11 +851,20 @@ function renderHtml(data: AdminDashboardData): string {
       .ticket-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
     }
     @media (max-width: 760px) {
-      .page { width: min(100% - 20px, 720px); padding-top: 16px; }
+      .page { width: min(100% - 16px, 720px); padding-top: 14px; padding-bottom: 26px; }
       .topbar { align-items: stretch; flex-direction: column; gap: 10px; }
-      .top-actions { justify-content: flex-start; }
+      .top-actions { justify-content: flex-start; width: 100%; }
+      .live, .logout { flex: 1 1 130px; }
       h1 { font-size: 22px; }
       .filters, .metrics, .split, .ticket-grid, .message-grid { grid-template-columns: 1fr; }
+      .filters {
+        gap: 8px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
       .metric { min-height: auto; }
       .table-wrap { overflow: visible; border: 0; background: transparent; box-shadow: none; }
       table, thead, tbody, tr, th, td { display: block; width: 100%; min-width: 0; }
@@ -851,7 +879,7 @@ function renderHtml(data: AdminDashboardData): string {
       }
       td {
         display: grid;
-        grid-template-columns: minmax(110px, 38%) 1fr;
+        grid-template-columns: minmax(92px, 34%) minmax(0, 1fr);
         gap: 10px;
         border-bottom: 1px solid var(--line);
         text-align: left;
@@ -882,11 +910,23 @@ function renderHtml(data: AdminDashboardData): string {
         min-width: 0;
       }
       .ticket-head { flex-direction: column; }
+      .ticket, .panel, .game { padding: 12px; }
       .game-fields { grid-template-columns: 1fr; }
       .match { grid-template-columns: 1fr; }
       .match strong:last-child { text-align: left; }
     }
     @media (max-width: 420px) {
+      .page { width: min(100% - 12px, 720px); }
+      h1 { font-size: 20px; }
+      .metric strong { font-size: 20px; }
+      td {
+        display: block;
+        padding: 10px;
+      }
+      td::before {
+        display: block;
+        margin-bottom: 4px;
+      }
       .money-actions form {
         grid-template-columns: 1fr;
       }

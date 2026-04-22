@@ -50,7 +50,12 @@ function renderAdminLoginPage(error: string | null = null): string {
       --danger: #b42318;
     }
     * { box-sizing: border-box; }
-    html, body { min-height: 100%; }
+    html, body {
+      width: 100%;
+      max-width: 100%;
+      min-height: 100%;
+      overflow-x: hidden;
+    }
     body {
       margin: 0;
       color: var(--ink);
@@ -74,7 +79,10 @@ function renderAdminLoginPage(error: string | null = null): string {
       grid-template-columns: minmax(0, 1.15fr) minmax(340px, .85fr);
       gap: 28px;
       align-items: center;
+      min-width: 0;
     }
+    .shell > *, form, label, input, button, p, h1, h2, span, strong { min-width: 0; }
+    p, h1, h2, span, strong, input, button { overflow-wrap: anywhere; }
     .hero {
       color: #ffffff;
       padding: 18px 0;
@@ -94,7 +102,7 @@ function renderAdminLoginPage(error: string | null = null): string {
     h1 {
       max-width: 720px;
       margin: 18px 0 12px;
-      font-size: clamp(32px, 5vw, 58px);
+      font-size: 52px;
       line-height: 1;
       letter-spacing: 0;
     }
@@ -141,6 +149,8 @@ function renderAdminLoginPage(error: string | null = null): string {
     }
     input, button {
       width: 100%;
+      max-width: 100%;
+      min-width: 0;
       min-height: 44px;
       border-radius: 7px;
       border: 1px solid #c9d1dc;
@@ -177,8 +187,16 @@ function renderAdminLoginPage(error: string | null = null): string {
       .shell { grid-template-columns: 1fr; align-content: center; min-height: calc(100vh - 36px); }
       .signals { grid-template-columns: 1fr; }
       .hero { padding: 0; }
+      h1 { font-size: 34px; }
       .hero p { font-size: 15px; }
       .card { padding: 20px; }
+    }
+    @media (max-width: 420px) {
+      main { padding: 12px; }
+      .shell { min-height: calc(100vh - 24px); gap: 16px; }
+      h1 { font-size: 29px; }
+      .card { padding: 16px; }
+      .signal { min-height: auto; }
     }
   </style>
 </head>
