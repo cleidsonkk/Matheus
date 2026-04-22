@@ -15,9 +15,18 @@ type AdminGame = {
   result: string;
 };
 
+export type AdminBreakdown = {
+  label: string;
+  count: number;
+  amount: number;
+  prize: number;
+};
+
 export type AdminTicket = {
   id: string;
+  externalMessageId: string | null;
   createdAt: string;
+  updatedAt: string;
   processedAt: string | null;
   channel: string;
   contact: string;
@@ -34,6 +43,7 @@ export type AdminTicket = {
   prize: number;
   gameCount: number;
   games: AdminGame[];
+  originalMessage: string;
   customerMessage: string | null;
   errorMessage: string | null;
   textSent: boolean;
@@ -50,24 +60,38 @@ export type AdminCustomerSummary = {
   confirmed: number;
   amount: number;
   prize: number;
+  games: number;
   lastActivity: string;
+  lastTicketCode: string | null;
 };
 
 export type AdminDashboardData = {
   generatedAt: string;
+  version: string;
   filters: {
     q: string;
     status: string;
+    channel: string;
+    from: string;
+    to: string;
     limit: number;
   };
   totals: {
     tickets: number;
     confirmed: number;
+    found: number;
+    notFound: number;
+    errors: number;
     pendingOrOpen: number;
     amount: number;
     prize: number;
     games: number;
+    deliveredText: number;
+    deliveredImage: number;
+    customers: number;
   };
+  statusBreakdown: AdminBreakdown[];
+  channelBreakdown: AdminBreakdown[];
   customers: AdminCustomerSummary[];
   tickets: AdminTicket[];
 };
@@ -176,7 +200,9 @@ function normalizeTicket(row: RawRow): AdminTicket {
 
   return {
     id: row.id,
+    externalMessageId: nullableString(row.external_message_id),
     createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
     processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : null,
     channel: row.channel,
     contact: row.phone,
@@ -193,6 +219,7 @@ function normalizeTicket(row: RawRow): AdminTicket {
     prize,
     gameCount: games.length,
     games,
+    originalMessage: pickString(row.original_message),
     customerMessage: nullableString(row.customer_message),
     errorMessage: nullableString(row.error_message),
     textSent: Boolean(row.text_sent),
@@ -215,6 +242,8 @@ function groupCustomers(tickets: AdminTicket[]): AdminCustomerSummary[] {
       confirmed: 0,
       amount: 0,
       prize: 0,
+      games: 0,
+      lastTicketCode: ticket.ticketCode,
       lastActivity: ticket.createdAt
     };
 
@@ -222,10 +251,12 @@ function groupCustomers(tickets: AdminTicket[]): AdminCustomerSummary[] {
     current.confirmed += ticket.confirmed ? 1 : 0;
     current.amount += ticket.amount;
     current.prize += ticket.prize;
+    current.games += ticket.gameCount;
 
     if (new Date(ticket.createdAt).getTime() > new Date(current.lastActivity).getTime()) {
       current.lastActivity = ticket.createdAt;
       current.customerName = ticket.customerName;
+      current.lastTicketCode = ticket.ticketCode;
     }
 
     groups.set(key, current);
@@ -234,9 +265,27 @@ function groupCustomers(tickets: AdminTicket[]): AdminCustomerSummary[] {
   return Array.from(groups.values()).sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime());
 }
 
+function breakdownBy(tickets: AdminTicket[], selector: (ticket: AdminTicket) => string): AdminBreakdown[] {
+  const groups = new Map<string, AdminBreakdown>();
+
+  for (const ticket of tickets) {
+    const label = selector(ticket) || "Não informado";
+    const current = groups.get(label) ?? { label, count: 0, amount: 0, prize: 0 };
+    current.count += 1;
+    current.amount += ticket.amount;
+    current.prize += ticket.prize;
+    groups.set(label, current);
+  }
+
+  return Array.from(groups.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
 export async function loadAdminDashboardData(input: {
   q?: string;
   status?: string;
+  channel?: string;
+  from?: string;
+  to?: string;
   limit?: number;
 }): Promise<AdminDashboardData> {
   if (!config.databaseUrl) {
@@ -245,6 +294,9 @@ export async function loadAdminDashboardData(input: {
 
   const q = input.q?.trim() ?? "";
   const status = input.status?.trim() ?? "";
+  const channel = input.channel?.trim() ?? "";
+  const from = input.from?.trim() ?? "";
+  const to = input.to?.trim() ?? "";
   const limit = Math.min(Math.max(input.limit ?? 100, 1), 500);
   const filters: string[] = [];
   const params: unknown[] = [];
@@ -252,6 +304,21 @@ export async function loadAdminDashboardData(input: {
   if (status && status !== "todos") {
     params.push(status);
     filters.push(`status = $${params.length}`);
+  }
+
+  if (channel && channel !== "todos") {
+    params.push(channel);
+    filters.push(`channel = $${params.length}`);
+  }
+
+  if (from) {
+    params.push(from);
+    filters.push(`created_at >= $${params.length}::date`);
+  }
+
+  if (to) {
+    params.push(to);
+    filters.push(`created_at < ($${params.length}::date + interval '1 day')`);
   }
 
   if (q) {
@@ -288,6 +355,7 @@ export async function loadAdminDashboardData(input: {
       raw_payload,
       result_payload,
       created_at,
+      updated_at,
       processed_at
     FROM validation_jobs
     ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""}
@@ -297,19 +365,42 @@ export async function loadAdminDashboardData(input: {
 
   const rows = await neon(config.databaseUrl).query(query, params);
   const tickets = rows.map(normalizeTicket);
+  const customers = groupCustomers(tickets);
+  const confirmed = tickets.filter((ticket) => ticket.confirmed).length;
+  const found = tickets.filter((ticket) => ticket.status === "encontrado").length;
+  const notFound = tickets.filter((ticket) => ticket.status === "nao_encontrado" || ticket.status === "codigo_nao_encontrado").length;
+  const errors = tickets.filter((ticket) => ticket.status === "erro").length;
 
   return {
     generatedAt: new Date().toISOString(),
-    filters: { q, status: status || "todos", limit },
+    version: tickets
+      .map((ticket) => `${ticket.id}:${ticket.status}:${ticket.confirmed}:${ticket.confirmationCode ?? ""}:${ticket.updatedAt}`)
+      .join("|"),
+    filters: {
+      q,
+      status: status || "todos",
+      channel: channel || "todos",
+      from,
+      to,
+      limit
+    },
     tickets,
-    customers: groupCustomers(tickets),
+    customers,
+    statusBreakdown: breakdownBy(tickets, (ticket) => ticket.status),
+    channelBreakdown: breakdownBy(tickets, (ticket) => ticket.channel),
     totals: {
       tickets: tickets.length,
-      confirmed: tickets.filter((ticket) => ticket.confirmed).length,
+      confirmed,
+      found,
+      notFound,
+      errors,
       pendingOrOpen: tickets.filter((ticket) => !ticket.confirmed).length,
       amount: tickets.reduce((total, ticket) => total + ticket.amount, 0),
       prize: tickets.reduce((total, ticket) => total + ticket.prize, 0),
-      games: tickets.reduce((total, ticket) => total + ticket.gameCount, 0)
+      games: tickets.reduce((total, ticket) => total + ticket.gameCount, 0),
+      deliveredText: tickets.filter((ticket) => ticket.textSent).length,
+      deliveredImage: tickets.filter((ticket) => ticket.imageSent).length,
+      customers: customers.length
     }
   };
 }

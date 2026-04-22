@@ -106,10 +106,10 @@ Uma janela do navegador vai abrir. Faca login no site; o script salva `TARGET_AU
 
 ## Painel administrativo
 
-Configure `ADMIN_USERNAME` e `ADMIN_PASSWORD` nas variaveis de ambiente da Vercel. Depois acesse:
+Configure `ADMIN_USERNAME` e `ADMIN_PASSWORD` nas variaveis de ambiente da Vercel. Depois acesse a home do sistema:
 
 ```text
-https://SEU_DOMINIO/api/admin
+https://SEU_DOMINIO/
 ```
 
-O painel mostra resumo por cliente, contato, quantidade de bilhetes, valor apostado, premio possivel, status, mensagem enviada e os jogos detalhados de cada bilhete. Para exportar os mesmos dados em JSON, use `/api/admin?format=json`.
+Depois do login, o sistema redireciona para `/api/admin`. O painel mostra resumo por cliente, contato, quantidade de bilhetes, valor apostado, premio possivel, status, mensagem enviada e os jogos detalhados de cada bilhete. A tela consulta o backend automaticamente e recarrega quando algum bilhete novo entra ou muda de status. Para exportar os mesmos dados em JSON, use `/api/admin?format=json`.

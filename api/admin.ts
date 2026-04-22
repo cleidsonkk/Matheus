@@ -1,42 +1,36 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import { config } from "../src/config.js";
-import { type AdminDashboardData, type AdminTicket, loadAdminDashboardData } from "../src/modules/adminDashboard.js";
+import { isAdminRequestAuthorized } from "../src/modules/adminAuth.js";
+import {
+  type AdminBreakdown,
+  type AdminCustomerSummary,
+  type AdminDashboardData,
+  type AdminTicket,
+  loadAdminDashboardData
+} from "../src/modules/adminDashboard.js";
 
-function safeEquals(left: string, right: string): boolean {
-  const leftHash = createHash("sha256").update(left).digest();
-  const rightHash = createHash("sha256").update(right).digest();
-  return timingSafeEqual(leftHash, rightHash);
-}
+const STATUSES = [
+  "todos",
+  "confirmado",
+  "encontrado",
+  "nao_encontrado",
+  "codigo_nao_encontrado",
+  "erro",
+  "queued",
+  "processing"
+] as const;
 
-function parseBasicAuth(header: string | undefined): { username: string; password: string } | null {
-  if (!header?.startsWith("Basic ")) {
-    return null;
+const CHANNELS = ["todos", "telegram", "whatsapp"] as const;
+
+function queryStringValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
   }
 
-  const decoded = Buffer.from(header.slice("Basic ".length), "base64").toString("utf8");
-  const separator = decoded.indexOf(":");
-
-  if (separator === -1) {
-    return null;
+  if (Array.isArray(value) && typeof value[0] === "string") {
+    return value[0];
   }
 
-  return {
-    username: decoded.slice(0, separator),
-    password: decoded.slice(separator + 1)
-  };
-}
-
-function isAuthorized(req: any): boolean {
-  if (!config.admin.username || !config.admin.password) {
-    return false;
-  }
-
-  const credentials = parseBasicAuth(req.headers.authorization);
-  return Boolean(
-    credentials
-      && safeEquals(credentials.username, config.admin.username)
-      && safeEquals(credentials.password, config.admin.password)
-  );
+  return "";
 }
 
 function escapeHtml(value: unknown): string {
@@ -46,6 +40,10 @@ function escapeHtml(value: unknown): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function formatInteger(value: number): string {
+  return new Intl.NumberFormat("pt-BR").format(value);
 }
 
 function formatMoney(value: number): string {
@@ -60,246 +58,691 @@ function formatDate(value: string | null): string {
     return "-";
   }
 
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
   return new Intl.DateTimeFormat("pt-BR", {
     dateStyle: "short",
     timeStyle: "short",
     timeZone: "America/Sao_Paulo"
-  }).format(new Date(value));
+  }).format(date);
 }
 
-function statusClass(status: string, confirmed: boolean): string {
+function formatDateOnly(value: string | null): string {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeZone: "America/Sao_Paulo"
+  }).format(date);
+}
+
+function formatOdd(value: number | null): string {
+  if (!value) {
+    return "-";
+  }
+
+  return new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
+function statusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    confirmado: "Confirmado",
+    encontrado: "Localizado",
+    nao_encontrado: "Não encontrado",
+    codigo_nao_encontrado: "Código não identificado",
+    erro: "Erro",
+    queued: "Na fila",
+    processing: "Processando",
+    todos: "Todos"
+  };
+
+  return labels[status] ?? status;
+}
+
+function channelLabel(channel: string): string {
+  const labels: Record<string, string> = {
+    telegram: "Telegram",
+    whatsapp: "WhatsApp",
+    todos: "Todos"
+  };
+
+  return labels[channel] ?? channel;
+}
+
+function statusClass(status: string, confirmed = false): string {
   if (confirmed || status === "confirmado") {
     return "ok";
   }
 
-  if (status === "erro" || status === "codigo_nao_encontrado") {
+  if (status === "erro" || status === "nao_encontrado" || status === "codigo_nao_encontrado") {
     return "bad";
+  }
+
+  if (status === "processing" || status === "queued") {
+    return "info";
   }
 
   return "warn";
 }
 
-function metric(label: string, value: string): string {
+function buildAdminUrl(data: AdminDashboardData, extra: Record<string, string>): string {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries({
+    q: data.filters.q,
+    status: data.filters.status,
+    channel: data.filters.channel,
+    from: data.filters.from,
+    to: data.filters.to,
+    limit: String(data.filters.limit),
+    ...extra
+  })) {
+    if (value && value !== "todos") {
+      params.set(key, value);
+    }
+  }
+
+  const query = params.toString();
+  return `/api/admin${query ? `?${query}` : ""}`;
+}
+
+function metric(label: string, value: string, detail: string): string {
   return `
-    <div class="metric">
+    <section class="metric" aria-label="${escapeHtml(label)}">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(value)}</strong>
+      <small>${escapeHtml(detail)}</small>
+    </section>
+  `;
+}
+
+function renderBreakdown(title: string, items: AdminBreakdown[], formatter: (label: string) => string): string {
+  const total = items.reduce((sum, item) => sum + item.count, 0);
+
+  return `
+    <section class="panel compact">
+      <div class="section-heading">
+        <h2>${escapeHtml(title)}</h2>
+      </div>
+      <div class="breakdown">
+        ${items.length === 0 ? `<p class="empty-text">Sem dados no filtro atual.</p>` : items.map((item) => {
+          const width = total > 0 ? Math.max(6, Math.round((item.count / total) * 100)) : 0;
+
+          return `
+            <div class="breakdown-row">
+              <div>
+                <strong>${escapeHtml(formatter(item.label))}</strong>
+                <small>${formatMoney(item.amount)} em apostas</small>
+              </div>
+              <span>${formatInteger(item.count)}</span>
+              <div class="bar"><i style="width:${width}%"></i></div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderCustomerRows(customers: AdminCustomerSummary[]): string {
+  if (customers.length === 0) {
+    return `<tr><td colspan="9" class="empty">Nenhum cliente encontrado.</td></tr>`;
+  }
+
+  return customers.map((customer) => `
+    <tr>
+      <td data-label="Cliente"><strong>${escapeHtml(customer.customerName)}</strong></td>
+      <td data-label="Contato">${escapeHtml(customer.contact)}</td>
+      <td data-label="Canal">${escapeHtml(channelLabel(customer.channel))}</td>
+      <td data-label="Bilhetes" class="num">${formatInteger(customer.tickets)}</td>
+      <td data-label="Confirmados" class="num">${formatInteger(customer.confirmed)}</td>
+      <td data-label="Jogos" class="num">${formatInteger(customer.games)}</td>
+      <td data-label="Valor" class="num">${formatMoney(customer.amount)}</td>
+      <td data-label="Prêmio" class="num">${formatMoney(customer.prize)}</td>
+      <td data-label="Último envio">
+        ${formatDate(customer.lastActivity)}
+        ${customer.lastTicketCode ? `<small>${escapeHtml(customer.lastTicketCode)}</small>` : ""}
+      </td>
+    </tr>
+  `).join("");
+}
+
+function renderGameCards(ticket: AdminTicket): string {
+  if (ticket.games.length === 0) {
+    return `<p class="empty-text">Sem jogos detalhados gravados para este bilhete.</p>`;
+  }
+
+  return `
+    <div class="games">
+      ${ticket.games.map((game, index) => `
+        <article class="game">
+          <div class="game-top">
+            <span>Jogo ${index + 1}</span>
+            <strong>${escapeHtml(formatOdd(game.odd))}</strong>
+          </div>
+          <div class="match">
+            <strong>${escapeHtml(game.home || "-")}</strong>
+            <span>x</span>
+            <strong>${escapeHtml(game.away || "-")}</strong>
+          </div>
+          <dl class="game-fields">
+            <div><dt>Data</dt><dd>${escapeHtml(game.date ? formatDate(game.date) : "-")}</dd></div>
+            <div><dt>Esporte</dt><dd>${escapeHtml(game.sport || "-")}</dd></div>
+            <div><dt>Mercado</dt><dd>${escapeHtml(game.market || "-")}</dd></div>
+            <div><dt>Palpite</dt><dd>${escapeHtml(game.selection || "-")}</dd></div>
+            <div><dt>Status</dt><dd>${escapeHtml(game.status || "-")}</dd></div>
+            <div><dt>Resultado</dt><dd>${escapeHtml(game.result || "-")}</dd></div>
+          </dl>
+        </article>
+      `).join("")}
     </div>
   `;
 }
 
-function renderCustomerRows(data: AdminDashboardData): string {
-  if (data.customers.length === 0) {
-    return `<tr><td colspan="8" class="empty">Nenhum cliente encontrado.</td></tr>`;
-  }
-
-  return data.customers.map((customer) => `
-    <tr>
-      <td>${escapeHtml(customer.customerName)}</td>
-      <td>${escapeHtml(customer.contact)}</td>
-      <td>${escapeHtml(customer.channel)}</td>
-      <td class="num">${customer.tickets}</td>
-      <td class="num">${customer.confirmed}</td>
-      <td class="num">${formatMoney(customer.amount)}</td>
-      <td class="num">${formatMoney(customer.prize)}</td>
-      <td>${formatDate(customer.lastActivity)}</td>
-    </tr>
-  `).join("");
-}
-
-function renderGames(ticket: AdminTicket): string {
-  if (ticket.games.length === 0) {
-    return `<p class="muted">Sem jogos detalhados gravados para este registro.</p>`;
-  }
+function renderTicketCard(ticket: AdminTicket): string {
+  const deliveryText = [
+    ticket.textSent ? "texto enviado" : "texto pendente",
+    ticket.imageSent ? "imagem enviada" : "sem imagem"
+  ].join(" · ");
 
   return `
-    <table class="inner">
-      <thead>
-        <tr>
-          <th>Data</th>
-          <th>Jogo</th>
-          <th>Mercado</th>
-          <th>Palpite</th>
-          <th>Odd</th>
-          <th>Status</th>
-          <th>Resultado</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${ticket.games.map((game) => `
-          <tr>
-            <td>${escapeHtml(game.date ? formatDate(game.date) : "-")}</td>
-            <td>
-              <strong>${escapeHtml(game.home || "-")}</strong>
-              <span class="muted"> x </span>
-              <strong>${escapeHtml(game.away || "-")}</strong>
-              ${game.sport ? `<small>${escapeHtml(game.sport)}</small>` : ""}
-            </td>
-            <td>${escapeHtml(game.market || "-")}</td>
-            <td>${escapeHtml(game.selection || "-")}</td>
-            <td class="num">${game.odd ? escapeHtml(game.odd.toFixed(2)) : "-"}</td>
-            <td>${escapeHtml(game.status || "-")}</td>
-            <td>${escapeHtml(game.result || "-")}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
+    <article class="ticket">
+      <div class="ticket-head">
+        <div>
+          <span class="code">${escapeHtml(ticket.ticketCode ?? ticket.siteTicketCode ?? "-")}</span>
+          <h3>${escapeHtml(ticket.customerName)}</h3>
+          <p>
+            ${escapeHtml(channelLabel(ticket.channel))} · ${escapeHtml(ticket.contact)}
+            ${ticket.username ? ` · @${escapeHtml(ticket.username)}` : ""}
+          </p>
+        </div>
+        <span class="pill ${statusClass(ticket.status, ticket.confirmed)}">${escapeHtml(statusLabel(ticket.status))}</span>
+      </div>
+
+      <dl class="ticket-grid">
+        <div><dt>Recebido</dt><dd>${formatDate(ticket.createdAt)}</dd></div>
+        <div><dt>Processado</dt><dd>${formatDate(ticket.processedAt)}</dd></div>
+        <div><dt>Cliente no site</dt><dd>${escapeHtml(ticket.siteCustomerName ?? "-")}</dd></div>
+        <div><dt>Status no site</dt><dd>${escapeHtml(ticket.siteStatus ?? "-")}</dd></div>
+        <div><dt>Valor</dt><dd>${formatMoney(ticket.amount)}</dd></div>
+        <div><dt>Prêmio possível</dt><dd>${formatMoney(ticket.prize)}</dd></div>
+        <div><dt>Jogos</dt><dd>${formatInteger(ticket.gameCount)}</dd></div>
+        <div><dt>Confirmação</dt><dd>${escapeHtml(ticket.confirmationCode ?? "-")}</dd></div>
+      </dl>
+
+      <details>
+        <summary>Detalhes completos</summary>
+        ${renderGameCards(ticket)}
+        <dl class="message-grid">
+          <div><dt>Mensagem recebida</dt><dd>${escapeHtml(ticket.originalMessage || "-")}</dd></div>
+          <div><dt>Mensagem enviada</dt><dd>${escapeHtml(ticket.customerMessage ?? "-")}</dd></div>
+          <div><dt>Entrega</dt><dd>${escapeHtml(deliveryText)}</dd></div>
+          <div><dt>ID externo</dt><dd>${escapeHtml(ticket.externalMessageId ?? "-")}</dd></div>
+          ${ticket.errorMessage ? `<div><dt>Erro</dt><dd>${escapeHtml(ticket.errorMessage)}</dd></div>` : ""}
+          ${ticket.deliveryError ? `<div><dt>Erro de entrega</dt><dd>${escapeHtml(ticket.deliveryError)}</dd></div>` : ""}
+        </dl>
+      </details>
+    </article>
   `;
 }
 
-function renderTicketRows(data: AdminDashboardData): string {
-  if (data.tickets.length === 0) {
-    return `<tr><td colspan="9" class="empty">Nenhum bilhete encontrado.</td></tr>`;
+function renderTickets(tickets: AdminTicket[]): string {
+  if (tickets.length === 0) {
+    return `<div class="empty-block">Nenhum bilhete encontrado para os filtros atuais.</div>`;
   }
 
-  return data.tickets.map((ticket) => `
-    <tr>
-      <td>
-        <strong>${escapeHtml(ticket.customerName)}</strong>
-        ${ticket.username ? `<small>@${escapeHtml(ticket.username)}</small>` : ""}
-        ${ticket.siteCustomerName ? `<small>Site: ${escapeHtml(ticket.siteCustomerName)}</small>` : ""}
-      </td>
-      <td>
-        ${escapeHtml(ticket.contact)}
-        <small>${escapeHtml(ticket.channel)}</small>
-      </td>
-      <td>
-        <strong>${escapeHtml(ticket.ticketCode ?? "-")}</strong>
-        ${ticket.siteTicketCode && ticket.siteTicketCode !== ticket.ticketCode ? `<small>Site: ${escapeHtml(ticket.siteTicketCode)}</small>` : ""}
-      </td>
-      <td>
-        <span class="pill ${statusClass(ticket.status, ticket.confirmed)}">${escapeHtml(ticket.status)}</span>
-        ${ticket.siteStatus ? `<small>${escapeHtml(ticket.siteStatus)}</small>` : ""}
-      </td>
-      <td class="num">${formatMoney(ticket.amount)}</td>
-      <td class="num">${formatMoney(ticket.prize)}</td>
-      <td class="num">${ticket.gameCount}</td>
-      <td>${formatDate(ticket.createdAt)}</td>
-      <td>
-        <details>
-          <summary>Ver jogos</summary>
-          ${renderGames(ticket)}
-          <dl>
-            <dt>Confirmação</dt>
-            <dd>${escapeHtml(ticket.confirmationCode ?? "-")}</dd>
-            <dt>Mensagem enviada</dt>
-            <dd>${escapeHtml(ticket.customerMessage ?? "-")}</dd>
-            <dt>Entrega</dt>
-            <dd>Texto: ${ticket.textSent ? "sim" : "não"} | Imagem: ${ticket.imageSent ? "sim" : "não"}</dd>
-            ${ticket.errorMessage ? `<dt>Erro</dt><dd>${escapeHtml(ticket.errorMessage)}</dd>` : ""}
-            ${ticket.deliveryError ? `<dt>Erro de entrega</dt><dd>${escapeHtml(ticket.deliveryError)}</dd>` : ""}
-          </dl>
-        </details>
-      </td>
-    </tr>
-  `).join("");
+  return tickets.map(renderTicketCard).join("");
+}
+
+function renderFilters(data: AdminDashboardData): string {
+  return `
+    <form method="get" action="/api/admin" class="filters">
+      <label>
+        <span>Busca</span>
+        <input name="q" value="${escapeHtml(data.filters.q)}" placeholder="Cliente, contato ou bilhete" autocomplete="off">
+      </label>
+      <label>
+        <span>Status</span>
+        <select name="status">
+          ${STATUSES.map((status) => `
+            <option value="${status}" ${data.filters.status === status ? "selected" : ""}>${statusLabel(status)}</option>
+          `).join("")}
+        </select>
+      </label>
+      <label>
+        <span>Canal</span>
+        <select name="channel">
+          ${CHANNELS.map((channel) => `
+            <option value="${channel}" ${data.filters.channel === channel ? "selected" : ""}>${channelLabel(channel)}</option>
+          `).join("")}
+        </select>
+      </label>
+      <label>
+        <span>De</span>
+        <input name="from" type="date" value="${escapeHtml(data.filters.from)}">
+      </label>
+      <label>
+        <span>Até</span>
+        <input name="to" type="date" value="${escapeHtml(data.filters.to)}">
+      </label>
+      <label>
+        <span>Limite</span>
+        <select name="limit">
+          ${[50, 100, 200, 500].map((limit) => `
+            <option value="${limit}" ${data.filters.limit === limit ? "selected" : ""}>${limit}</option>
+          `).join("")}
+        </select>
+      </label>
+      <button type="submit">Filtrar</button>
+      <a class="button secondary" href="/api/admin">Limpar</a>
+      <a class="button ghost" href="${escapeHtml(buildAdminUrl(data, { format: "json" }))}">Exportar JSON</a>
+    </form>
+  `;
 }
 
 function renderHtml(data: AdminDashboardData): string {
+  const averageTicket = data.totals.tickets > 0 ? data.totals.amount / data.totals.tickets : 0;
+  const lastUpdate = formatDate(data.generatedAt);
+  const dataUrl = buildAdminUrl(data, { format: "json" });
+
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
   <title>Admin - Validador de Bilhetes</title>
   <style>
     :root {
       color-scheme: light;
-      --bg: #f6f7f9;
-      --text: #171a1f;
-      --muted: #69707d;
-      --line: #dfe3e8;
+      --bg: #f4f6f8;
       --surface: #ffffff;
+      --surface-soft: #f9fafb;
+      --text: #151923;
+      --muted: #687385;
+      --line: #d9dee7;
+      --line-strong: #c5ccd8;
       --accent: #0f766e;
+      --accent-dark: #115e59;
+      --ok: #137333;
+      --ok-bg: #e7f6ec;
       --bad: #b42318;
-      --warn: #a15c07;
-      --ok-bg: #dcfce7;
-      --bad-bg: #fee4e2;
-      --warn-bg: #fef3c7;
+      --bad-bg: #fde8e7;
+      --warn: #945a00;
+      --warn-bg: #fff3d6;
+      --info: #155eef;
+      --info-bg: #e8efff;
+      --shadow: 0 1px 2px rgba(16, 24, 40, .06);
     }
 
     * { box-sizing: border-box; }
+    html { min-width: 320px; }
     body {
       margin: 0;
       background: var(--bg);
       color: var(--text);
-      font: 14px/1.4 Arial, Helvetica, sans-serif;
+      font: 14px/1.45 Arial, Helvetica, sans-serif;
+      letter-spacing: 0;
     }
-    header, main { width: min(1440px, calc(100% - 32px)); margin: 0 auto; }
-    header { padding: 24px 0 12px; display: flex; justify-content: space-between; gap: 16px; align-items: end; }
-    h1 { font-size: 24px; margin: 0; }
-    h2 { font-size: 16px; margin: 28px 0 10px; }
-    form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    input, select, button {
-      height: 36px;
+
+    a { color: inherit; }
+    .page {
+      width: min(1480px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+    }
+    .topbar {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 16px;
+    }
+    .eyebrow {
+      color: var(--muted);
+      display: block;
+      font-size: 12px;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 28px; line-height: 1.15; }
+    h2 { font-size: 16px; line-height: 1.25; }
+    h3 { font-size: 16px; line-height: 1.25; margin-top: 4px; }
+    .muted, small { color: var(--muted); }
+    small { font-size: 12px; }
+
+    .panel, .metric, .ticket {
+      background: var(--surface);
       border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+    .panel { padding: 14px; }
+    .panel.compact { min-height: 100%; }
+    .filters {
+      display: grid;
+      grid-template-columns: minmax(220px, 2fr) repeat(5, minmax(120px, 1fr)) auto auto auto;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 14px;
+    }
+    label span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    input, select, button, .button {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
       background: var(--surface);
       color: var(--text);
-      border-radius: 6px;
-      padding: 0 10px;
       font: inherit;
+      letter-spacing: 0;
+      padding: 8px 10px;
     }
-    button { background: var(--accent); color: white; border-color: var(--accent); cursor: pointer; }
-    .metrics { display: grid; grid-template-columns: repeat(6, minmax(130px, 1fr)); gap: 10px; }
-    .metric { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
-    .metric span, small, .muted { color: var(--muted); }
-    .metric strong { display: block; font-size: 20px; margin-top: 4px; }
-    .table-wrap { overflow-x: auto; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; }
-    table { width: 100%; border-collapse: collapse; min-width: 980px; }
-    th, td { padding: 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-    th { background: #eef1f4; font-size: 12px; text-transform: uppercase; color: #4b5563; }
-    td small { display: block; margin-top: 2px; }
+    button, .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    button, .button.secondary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+      font-weight: 700;
+    }
+    .button.secondary { background: #334155; border-color: #334155; }
+    .button.ghost { color: var(--accent-dark); background: #edf7f5; border-color: #b6ded8; font-weight: 700; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(150px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .metric { padding: 13px; min-height: 92px; }
+    .metric span { color: var(--muted); display: block; font-size: 12px; }
+    .metric strong { display: block; font-size: 22px; line-height: 1.15; margin-top: 5px; }
+    .metric small { display: block; margin-top: 6px; }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .section-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .breakdown { display: grid; gap: 10px; }
+    .breakdown-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px 12px;
+      align-items: center;
+    }
+    .breakdown-row strong { display: block; }
+    .breakdown-row span { font-weight: 700; }
+    .bar {
+      grid-column: 1 / -1;
+      height: 7px;
+      background: #edf0f4;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .bar i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      margin-bottom: 20px;
+    }
+    table { width: 100%; min-width: 1060px; border-collapse: collapse; }
+    th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th {
+      position: sticky;
+      top: 0;
+      background: #eef1f5;
+      color: #475467;
+      font-size: 12px;
+      text-transform: uppercase;
+      z-index: 1;
+    }
+    td strong { display: block; }
+    td small { display: block; margin-top: 3px; }
     .num { text-align: right; white-space: nowrap; }
-    .pill { display: inline-block; border-radius: 999px; padding: 3px 8px; font-size: 12px; font-weight: 700; }
-    .pill.ok { background: var(--ok-bg); color: #166534; }
-    .pill.bad { background: var(--bad-bg); color: var(--bad); }
-    .pill.warn { background: var(--warn-bg); color: var(--warn); }
-    details summary { cursor: pointer; color: var(--accent); font-weight: 700; }
-    .inner { min-width: 760px; margin: 10px 0; font-size: 13px; border: 1px solid var(--line); }
-    dl { display: grid; grid-template-columns: 120px 1fr; gap: 6px 10px; margin: 10px 0 0; }
-    dt { color: var(--muted); }
-    dd { margin: 0; white-space: pre-wrap; }
-    .empty { text-align: center; color: var(--muted); padding: 24px; }
-    @media (max-width: 900px) {
-      header { align-items: stretch; flex-direction: column; }
-      .metrics { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
-      input, select, button { width: 100%; }
+    .empty, .empty-block, .empty-text {
+      color: var(--muted);
+      text-align: center;
+    }
+    .empty-block {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 28px;
+    }
+
+    .tickets {
+      display: grid;
+      gap: 12px;
+    }
+    .ticket { padding: 14px; }
+    .ticket-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+    }
+    .ticket-head p { color: var(--muted); margin-top: 4px; }
+    .code {
+      display: inline-block;
+      color: var(--accent-dark);
+      font-weight: 800;
+      letter-spacing: .04em;
+      word-break: break-word;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      min-height: 26px;
+      padding: 4px 9px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .pill.ok { color: var(--ok); background: var(--ok-bg); }
+    .pill.bad { color: var(--bad); background: var(--bad-bg); }
+    .pill.warn { color: var(--warn); background: var(--warn-bg); }
+    .pill.info { color: var(--info); background: var(--info-bg); }
+    .live {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      border: 1px solid #b6ded8;
+      border-radius: 999px;
+      background: #edf7f5;
+      color: var(--accent-dark);
+      font-weight: 800;
+      padding: 6px 11px;
+      white-space: nowrap;
+    }
+    .live::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(15, 118, 110, .12);
+    }
+
+    dl { margin: 0; }
+    dt { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+    dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+    .ticket-grid, .game-fields, .message-grid {
+      display: grid;
+      gap: 10px;
+    }
+    .ticket-grid { grid-template-columns: repeat(4, minmax(150px, 1fr)); margin-bottom: 12px; }
+    .ticket-grid > div, .message-grid > div {
+      background: var(--surface-soft);
+      border: 1px solid #edf0f4;
+      border-radius: 6px;
+      padding: 9px;
+    }
+    details {
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+    }
+    summary {
+      color: var(--accent-dark);
+      cursor: pointer;
+      font-weight: 800;
+      min-height: 30px;
+    }
+    .games {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 10px;
+      margin: 10px 0 12px;
+    }
+    .game {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 11px;
+      background: #ffffff;
+    }
+    .game-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .game-top strong { color: var(--text); font-size: 14px; }
+    .match {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .match strong:last-child { text-align: right; }
+    .match span { color: var(--muted); }
+    .game-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .message-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    @media (max-width: 1180px) {
+      .filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .metrics { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+      .ticket-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+    }
+    @media (max-width: 760px) {
+      .page { width: min(100% - 20px, 720px); padding-top: 16px; }
+      .topbar { align-items: stretch; flex-direction: column; gap: 10px; }
+      h1 { font-size: 22px; }
+      .filters, .metrics, .split, .ticket-grid, .message-grid { grid-template-columns: 1fr; }
+      .metric { min-height: auto; }
+      .table-wrap { overflow: visible; border: 0; background: transparent; box-shadow: none; }
+      table, thead, tbody, tr, th, td { display: block; width: 100%; min-width: 0; }
+      thead { display: none; }
+      tr {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        margin-bottom: 10px;
+        overflow: hidden;
+      }
+      td {
+        display: grid;
+        grid-template-columns: minmax(110px, 38%) 1fr;
+        gap: 10px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+      }
+      td::before {
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+      td:last-child { border-bottom: 0; }
+      .num { text-align: left; }
+      .ticket-head { flex-direction: column; }
+      .game-fields { grid-template-columns: 1fr; }
+      .match { grid-template-columns: 1fr; }
+      .match strong:last-child { text-align: left; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <div>
-      <h1>Admin - Validador de Bilhetes</h1>
-      <div class="muted">Atualizado em ${formatDate(data.generatedAt)}</div>
-    </div>
-    <form method="get" action="/api/admin">
-      <input name="q" value="${escapeHtml(data.filters.q)}" placeholder="Cliente, contato ou bilhete">
-      <select name="status">
-        ${["todos", "confirmado", "encontrado", "nao_encontrado", "erro", "queued", "processing"].map((status) => `
-          <option value="${status}" ${data.filters.status === status ? "selected" : ""}>${status}</option>
-        `).join("")}
-      </select>
-      <select name="limit">
-        ${[50, 100, 200, 500].map((limit) => `
-          <option value="${limit}" ${data.filters.limit === limit ? "selected" : ""}>${limit}</option>
-        `).join("")}
-      </select>
-      <button type="submit">Filtrar</button>
-    </form>
-  </header>
-  <main>
-    <section class="metrics">
-      ${metric("Bilhetes", String(data.totals.tickets))}
-      ${metric("Confirmados", String(data.totals.confirmed))}
-      ${metric("Em aberto/pendentes", String(data.totals.pendingOrOpen))}
-      ${metric("Jogos", String(data.totals.games))}
-      ${metric("Valor apostado", formatMoney(data.totals.amount))}
-      ${metric("Prêmio possível", formatMoney(data.totals.prize))}
+  <main class="page">
+    <header class="topbar">
+      <div>
+        <span class="eyebrow">Painel administrativo</span>
+        <h1>Validador de Bilhetes</h1>
+        <p class="muted">Atualizado em <span id="last-update">${lastUpdate}</span></p>
+      </div>
+      <span class="live" id="live-status">Ao vivo</span>
+    </header>
+
+    ${renderFilters(data)}
+
+    <section class="metrics" aria-label="Indicadores">
+      ${metric("Bilhetes", formatInteger(data.totals.tickets), `${formatInteger(data.totals.customers)} cliente(s)`)}
+      ${metric("Confirmados", formatInteger(data.totals.confirmed), `${formatInteger(data.totals.deliveredText)} resposta(s) enviada(s)`)}
+      ${metric("Localizados", formatInteger(data.totals.found), `${formatInteger(data.totals.notFound)} não localizado(s)`)}
+      ${metric("Valor apostado", formatMoney(data.totals.amount), `Média ${formatMoney(averageTicket)}`)}
+      ${metric("Prêmio possível", formatMoney(data.totals.prize), `${formatInteger(data.totals.games)} jogo(s)`)}
+      ${metric("Erros", formatInteger(data.totals.errors), `${formatInteger(data.totals.deliveredImage)} comprovante(s)`)}
+    </section>
+
+    <section class="split">
+      ${renderBreakdown("Status dos bilhetes", data.statusBreakdown, statusLabel)}
+      ${renderBreakdown("Canais de entrada", data.channelBreakdown, channelLabel)}
     </section>
 
     <section>
-      <h2>Resumo por cliente</h2>
+      <div class="section-heading">
+        <h2>Resumo por cliente</h2>
+        <span class="muted">${formatInteger(data.customers.length)} cliente(s)</span>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -307,67 +750,110 @@ function renderHtml(data: AdminDashboardData): string {
               <th>Cliente</th>
               <th>Contato</th>
               <th>Canal</th>
-              <th>Qtd.</th>
+              <th>Bilhetes</th>
               <th>Confirmados</th>
+              <th>Jogos</th>
               <th>Valor</th>
               <th>Prêmio</th>
               <th>Último envio</th>
             </tr>
           </thead>
-          <tbody>${renderCustomerRows(data)}</tbody>
+          <tbody>${renderCustomerRows(data.customers)}</tbody>
         </table>
       </div>
     </section>
 
     <section>
-      <h2>Bilhetes e jogos</h2>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Cliente</th>
-              <th>Contato</th>
-              <th>Bilhete</th>
-              <th>Status</th>
-              <th>Valor</th>
-              <th>Prêmio</th>
-              <th>Jogos</th>
-              <th>Recebido</th>
-              <th>Detalhes</th>
-            </tr>
-          </thead>
-          <tbody>${renderTicketRows(data)}</tbody>
-        </table>
+      <div class="section-heading">
+        <h2>Bilhetes e jogos</h2>
+        <span class="muted">${formatInteger(data.tickets.length)} registro(s)</span>
       </div>
+      <div class="tickets">${renderTickets(data.tickets)}</div>
     </section>
   </main>
+  <script>
+    (() => {
+      const currentVersion = ${JSON.stringify(data.version)};
+      const dataUrl = ${JSON.stringify(dataUrl)};
+      const status = document.getElementById("live-status");
+      const lastUpdate = document.getElementById("last-update");
+
+      async function checkForUpdates() {
+        try {
+          const response = await fetch(dataUrl, {
+            cache: "no-store",
+            credentials: "same-origin",
+            headers: { "Accept": "application/json" }
+          });
+
+          if (!response.ok) {
+            if (status) status.textContent = "Reconectando";
+            return;
+          }
+
+          const data = await response.json();
+
+          if (data.version !== currentVersion) {
+            window.location.reload();
+            return;
+          }
+
+          if (status) status.textContent = "Ao vivo";
+          if (lastUpdate && data.generatedAt) {
+            lastUpdate.textContent = new Intl.DateTimeFormat("pt-BR", {
+              dateStyle: "short",
+              timeStyle: "short",
+              timeZone: "America/Sao_Paulo"
+            }).format(new Date(data.generatedAt));
+          }
+        } catch {
+          if (status) status.textContent = "Reconectando";
+        }
+      }
+
+      window.setInterval(checkForUpdates, 8000);
+    })();
+  </script>
 </body>
 </html>`;
 }
 
 export default async function handler(req: any, res: any): Promise<void> {
+  res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+
   if (!config.admin.username || !config.admin.password) {
     res.status(503).send("ADMIN_USERNAME e ADMIN_PASSWORD precisam estar configurados.");
     return;
   }
 
-  if (!isAuthorized(req)) {
+  if (!isAdminRequestAuthorized(req.headers)) {
     res.setHeader("WWW-Authenticate", 'Basic realm="Validador Admin", charset="UTF-8"');
-    res.status(401).send("Autenticacao obrigatoria.");
+    res.status(401).send("Autenticação obrigatória.");
     return;
   }
 
-  const data = await loadAdminDashboardData({
-    q: typeof req.query.q === "string" ? req.query.q : "",
-    status: typeof req.query.status === "string" ? req.query.status : "todos",
-    limit: typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : 100
-  });
+  try {
+    const data = await loadAdminDashboardData({
+      q: queryStringValue(req.query.q),
+      status: queryStringValue(req.query.status) || "todos",
+      channel: queryStringValue(req.query.channel) || "todos",
+      from: queryStringValue(req.query.from),
+      to: queryStringValue(req.query.to),
+      limit: Number.parseInt(queryStringValue(req.query.limit) || "100", 10)
+    });
 
-  if (req.query.format === "json") {
-    res.status(200).json(data);
-    return;
+    if (queryStringValue(req.query.format) === "json") {
+      res.status(200).json(data);
+      return;
+    }
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(renderHtml(data));
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Erro ao carregar o painel administrativo.");
   }
-
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.status(200).send(renderHtml(data));
 }
