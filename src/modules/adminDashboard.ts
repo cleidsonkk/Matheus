@@ -13,6 +13,7 @@ type AdminGame = {
   odd: number | null;
   status: string;
   result: string;
+  stakeShare: number;
 };
 
 export type AdminBreakdown = {
@@ -29,6 +30,7 @@ export type AdminTicket = {
   updatedAt: string;
   processedAt: string | null;
   channel: string;
+  customerId: string;
   contact: string;
   customerName: string;
   username: string | null;
@@ -42,6 +44,7 @@ export type AdminTicket = {
   amount: number;
   prize: number;
   gameCount: number;
+  averageGameAmount: number;
   games: AdminGame[];
   originalMessage: string;
   customerMessage: string | null;
@@ -54,6 +57,7 @@ export type AdminTicket = {
 export type AdminCustomerSummary = {
   key: string;
   customerName: string;
+  customerId: string;
   contact: string;
   channel: string;
   tickets: number;
@@ -61,6 +65,8 @@ export type AdminCustomerSummary = {
   amount: number;
   prize: number;
   games: number;
+  averageTicketAmount: number;
+  averageGameAmount: number;
   lastActivity: string;
   lastTicketCode: string | null;
 };
@@ -86,6 +92,8 @@ export type AdminDashboardData = {
     amount: number;
     prize: number;
     games: number;
+    averageTicketAmount: number;
+    averageGameAmount: number;
     deliveredText: number;
     deliveredImage: number;
     customers: number;
@@ -168,12 +176,13 @@ function customerFromRaw(raw: RawRow, siteCustomerName: string | null): { name: 
   };
 }
 
-function extractGames(payload: RawRow): AdminGame[] {
+function extractGames(payload: RawRow, ticketAmount: number): AdminGame[] {
   const items = Array.isArray(payload?.itens)
     ? payload.itens
     : Array.isArray(payload?.itensBolao)
       ? payload.itensBolao
       : [];
+  const stakeShare = items.length > 0 ? ticketAmount / items.length : 0;
 
   return items.map((item: RawRow) => ({
     date: pickString(item.dt_jogo, item.data, item.date),
@@ -184,7 +193,8 @@ function extractGames(payload: RawRow): AdminGame[] {
     selection: pickString(item.descricao, item.palpite, item.selection),
     odd: numberFrom(item.taxa || item.odd || item.cotacao) || null,
     status: pickString(item.sit_desc, item.status_desc, item.status),
-    result: formatResult(item)
+    result: formatResult(item),
+    stakeShare
   }));
 }
 
@@ -194,9 +204,9 @@ function normalizeTicket(row: RawRow): AdminTicket {
   const aposta = ticketPayload.aposta ?? {};
   const siteCustomerName = nullableString(aposta.cliente);
   const customer = customerFromRaw(row.raw_payload ?? {}, siteCustomerName);
-  const games = extractGames(ticketPayload);
   const amount = numberFrom(aposta.vl_aposta ?? aposta.valor ?? aposta.amount);
   const prize = numberFrom(aposta.vl_premio ?? aposta.premio ?? aposta.prize);
+  const games = extractGames(ticketPayload, amount);
 
   return {
     id: row.id,
@@ -205,6 +215,7 @@ function normalizeTicket(row: RawRow): AdminTicket {
     updatedAt: new Date(row.updated_at).toISOString(),
     processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : null,
     channel: row.channel,
+    customerId: `${row.channel}:${row.phone}`,
     contact: row.phone,
     customerName: customer.name,
     username: customer.username,
@@ -218,6 +229,7 @@ function normalizeTicket(row: RawRow): AdminTicket {
     amount,
     prize,
     gameCount: games.length,
+    averageGameAmount: games.length > 0 ? amount / games.length : 0,
     games,
     originalMessage: pickString(row.original_message),
     customerMessage: nullableString(row.customer_message),
@@ -236,6 +248,7 @@ function groupCustomers(tickets: AdminTicket[]): AdminCustomerSummary[] {
     const current = groups.get(key) ?? {
       key,
       customerName: ticket.customerName,
+      customerId: key,
       contact: ticket.contact,
       channel: ticket.channel,
       tickets: 0,
@@ -243,6 +256,8 @@ function groupCustomers(tickets: AdminTicket[]): AdminCustomerSummary[] {
       amount: 0,
       prize: 0,
       games: 0,
+      averageTicketAmount: 0,
+      averageGameAmount: 0,
       lastTicketCode: ticket.ticketCode,
       lastActivity: ticket.createdAt
     };
@@ -252,6 +267,8 @@ function groupCustomers(tickets: AdminTicket[]): AdminCustomerSummary[] {
     current.amount += ticket.amount;
     current.prize += ticket.prize;
     current.games += ticket.gameCount;
+    current.averageTicketAmount = current.tickets > 0 ? current.amount / current.tickets : 0;
+    current.averageGameAmount = current.games > 0 ? current.amount / current.games : 0;
 
     if (new Date(ticket.createdAt).getTime() > new Date(current.lastActivity).getTime()) {
       current.lastActivity = ticket.createdAt;
@@ -300,6 +317,8 @@ export async function loadAdminDashboardData(input: {
   const limit = Math.min(Math.max(input.limit ?? 100, 1), 500);
   const filters: string[] = [];
   const params: unknown[] = [];
+
+  filters.push("ticket_code IS NOT NULL");
 
   if (status && status !== "todos") {
     params.push(status);
@@ -358,7 +377,7 @@ export async function loadAdminDashboardData(input: {
       updated_at,
       processed_at
     FROM validation_jobs
-    ${filters.length ? `WHERE ${filters.join(" AND ")}` : ""}
+    WHERE ${filters.join(" AND ")}
     ORDER BY created_at DESC
     LIMIT $${params.length}
   `;
@@ -398,6 +417,12 @@ export async function loadAdminDashboardData(input: {
       amount: tickets.reduce((total, ticket) => total + ticket.amount, 0),
       prize: tickets.reduce((total, ticket) => total + ticket.prize, 0),
       games: tickets.reduce((total, ticket) => total + ticket.gameCount, 0),
+      averageTicketAmount: tickets.length > 0
+        ? tickets.reduce((total, ticket) => total + ticket.amount, 0) / tickets.length
+        : 0,
+      averageGameAmount: tickets.reduce((total, ticket) => total + ticket.gameCount, 0) > 0
+        ? tickets.reduce((total, ticket) => total + ticket.amount, 0) / tickets.reduce((total, ticket) => total + ticket.gameCount, 0)
+        : 0,
       deliveredText: tickets.filter((ticket) => ticket.textSent).length,
       deliveredImage: tickets.filter((ticket) => ticket.imageSent).length,
       customers: customers.length

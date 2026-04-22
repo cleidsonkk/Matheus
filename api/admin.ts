@@ -201,18 +201,21 @@ function renderBreakdown(title: string, items: AdminBreakdown[], formatter: (lab
 
 function renderCustomerRows(customers: AdminCustomerSummary[]): string {
   if (customers.length === 0) {
-    return `<tr><td colspan="9" class="empty">Nenhum cliente encontrado.</td></tr>`;
+    return `<tr><td colspan="11" class="empty">Nenhum cliente encontrado.</td></tr>`;
   }
 
   return customers.map((customer) => `
     <tr>
       <td data-label="Cliente"><strong>${escapeHtml(customer.customerName)}</strong></td>
+      <td data-label="ID do cliente"><code>${escapeHtml(customer.customerId)}</code></td>
       <td data-label="Contato">${escapeHtml(customer.contact)}</td>
       <td data-label="Canal">${escapeHtml(channelLabel(customer.channel))}</td>
       <td data-label="Bilhetes" class="num">${formatInteger(customer.tickets)}</td>
       <td data-label="Confirmados" class="num">${formatInteger(customer.confirmed)}</td>
       <td data-label="Jogos" class="num">${formatInteger(customer.games)}</td>
-      <td data-label="Valor" class="num">${formatMoney(customer.amount)}</td>
+      <td data-label="Valor total" class="num">${formatMoney(customer.amount)}</td>
+      <td data-label="Média por bilhete" class="num">${formatMoney(customer.averageTicketAmount)}</td>
+      <td data-label="Média por jogo" class="num">${formatMoney(customer.averageGameAmount)}</td>
       <td data-label="Prêmio" class="num">${formatMoney(customer.prize)}</td>
       <td data-label="Último envio">
         ${formatDate(customer.lastActivity)}
@@ -245,6 +248,7 @@ function renderGameCards(ticket: AdminTicket): string {
             <div><dt>Esporte</dt><dd>${escapeHtml(game.sport || "-")}</dd></div>
             <div><dt>Mercado</dt><dd>${escapeHtml(game.market || "-")}</dd></div>
             <div><dt>Palpite</dt><dd>${escapeHtml(game.selection || "-")}</dd></div>
+            <div><dt>Valor proporcional</dt><dd>${formatMoney(game.stakeShare)}</dd></div>
             <div><dt>Status</dt><dd>${escapeHtml(game.status || "-")}</dd></div>
             <div><dt>Resultado</dt><dd>${escapeHtml(game.result || "-")}</dd></div>
           </dl>
@@ -270,6 +274,7 @@ function renderTicketCard(ticket: AdminTicket): string {
             ${escapeHtml(channelLabel(ticket.channel))} · ${escapeHtml(ticket.contact)}
             ${ticket.username ? ` · @${escapeHtml(ticket.username)}` : ""}
           </p>
+          <small>ID do cliente: ${escapeHtml(ticket.customerId)}</small>
         </div>
         <span class="pill ${statusClass(ticket.status, ticket.confirmed)}">${escapeHtml(statusLabel(ticket.status))}</span>
       </div>
@@ -282,6 +287,7 @@ function renderTicketCard(ticket: AdminTicket): string {
         <div><dt>Valor</dt><dd>${formatMoney(ticket.amount)}</dd></div>
         <div><dt>Prêmio possível</dt><dd>${formatMoney(ticket.prize)}</dd></div>
         <div><dt>Jogos</dt><dd>${formatInteger(ticket.gameCount)}</dd></div>
+        <div><dt>Média por jogo</dt><dd>${formatMoney(ticket.averageGameAmount)}</dd></div>
         <div><dt>Confirmação</dt><dd>${escapeHtml(ticket.confirmationCode ?? "-")}</dd></div>
       </dl>
 
@@ -426,6 +432,11 @@ function renderHtml(data: AdminDashboardData): string {
     h3 { font-size: 16px; line-height: 1.25; margin-top: 4px; }
     .muted, small { color: var(--muted); }
     small { font-size: 12px; }
+    code {
+      color: var(--accent-dark);
+      font: 700 12px/1.4 "Courier New", monospace;
+      overflow-wrap: anywhere;
+    }
 
     .panel, .metric, .ticket {
       background: var(--surface);
@@ -728,9 +739,9 @@ function renderHtml(data: AdminDashboardData): string {
       ${metric("Bilhetes", formatInteger(data.totals.tickets), `${formatInteger(data.totals.customers)} cliente(s)`)}
       ${metric("Confirmados", formatInteger(data.totals.confirmed), `${formatInteger(data.totals.deliveredText)} resposta(s) enviada(s)`)}
       ${metric("Localizados", formatInteger(data.totals.found), `${formatInteger(data.totals.notFound)} não localizado(s)`)}
-      ${metric("Valor apostado", formatMoney(data.totals.amount), `Média ${formatMoney(averageTicket)}`)}
+      ${metric("Valor total geral", formatMoney(data.totals.amount), `Média por bilhete ${formatMoney(averageTicket)}`)}
       ${metric("Prêmio possível", formatMoney(data.totals.prize), `${formatInteger(data.totals.games)} jogo(s)`)}
-      ${metric("Erros", formatInteger(data.totals.errors), `${formatInteger(data.totals.deliveredImage)} comprovante(s)`)}
+      ${metric("Média por jogo", formatMoney(data.totals.averageGameAmount), `${formatInteger(data.totals.deliveredImage)} comprovante(s)`)}
     </section>
 
     <section class="split">
@@ -748,12 +759,15 @@ function renderHtml(data: AdminDashboardData): string {
           <thead>
             <tr>
               <th>Cliente</th>
+              <th>ID do cliente</th>
               <th>Contato</th>
               <th>Canal</th>
               <th>Bilhetes</th>
               <th>Confirmados</th>
               <th>Jogos</th>
-              <th>Valor</th>
+              <th>Valor total</th>
+              <th>Média bilhete</th>
+              <th>Média jogo</th>
               <th>Prêmio</th>
               <th>Último envio</th>
             </tr>
