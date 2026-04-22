@@ -1,0 +1,297 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from "playwright";
+import { config } from "../config.js";
+import type { TicketConfirmationResult, TicketSearchResult } from "../types.js";
+
+const SEARCH_BUTTON_TEXT = /pesquisar|buscar|consultar/i;
+const CONFIRM_BUTTON_TEXT = /confirmar|confirmar bilhete|confirmar pré-bilhete|confirmar pre-bilhete|efetivar/i;
+const NOT_FOUND_TEXT = /não encontrado|nao encontrado|não localizado|nao localizado|inválido|invalido|nenhum bilhete|código inexistente|codigo inexistente|bilhete não|bilhete nao/i;
+const FOUND_HINT_TEXT = /odd|odds|seleç|selec|cotação|cotacao|evento|aposta|valor|palpite|mercado/i;
+
+export class TicketAutomation {
+  async validateAndConfirm(codigo: string): Promise<TicketConfirmationResult> {
+    let context: BrowserContext | null = null;
+    let browser: Browser | null = null;
+
+    try {
+      const session = await this.createBrowserContext();
+      context = session.context;
+      browser = session.browser;
+
+      const page = context.pages()[0] ?? await context.newPage();
+      page.setDefaultTimeout(config.browserTimeoutMs);
+
+      const search = await this.searchTicket(page, codigo);
+
+      if (search.status !== "encontrado") {
+        return {
+          confirmado: false,
+          codigo_confirmacao: null,
+          screenshot_base64: null,
+          screenshot_path: null,
+          mensagem_erro: search.status === "erro" ? "Erro ao consultar o bilhete" : null,
+          status: search.status,
+          codigo_bilhete: codigo,
+          dados_bilhete: search.dados_bilhete
+        };
+      }
+
+      if (!config.confirmPreTicket) {
+        return {
+          confirmado: false,
+          codigo_confirmacao: null,
+          screenshot_base64: null,
+          screenshot_path: null,
+          mensagem_erro: "Confirmação automática desativada",
+          status: "erro",
+          codigo_bilhete: codigo,
+          dados_bilhete: search.dados_bilhete
+        };
+      }
+
+      const confirmButton = await this.firstVisibleLocator(page, [
+        () => page.getByRole("button", { name: CONFIRM_BUTTON_TEXT }),
+        () => page.getByText(CONFIRM_BUTTON_TEXT, { exact: false }),
+        () => page.locator("input[type='submit'], input[type='button'], button").filter({ hasText: CONFIRM_BUTTON_TEXT })
+      ]);
+
+      if (!confirmButton) {
+        const screenshot = await this.captureScreenshot(page, codigo);
+
+        return {
+          confirmado: false,
+          codigo_confirmacao: null,
+          screenshot_base64: screenshot.base64,
+          screenshot_path: screenshot.path,
+          mensagem_erro: "Botão de confirmação não localizado",
+          status: "erro",
+          codigo_bilhete: codigo,
+          dados_bilhete: search.dados_bilhete
+        };
+      }
+
+      await Promise.all([
+        page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => undefined),
+        confirmButton.click()
+      ]);
+
+      await page.waitForTimeout(1_000);
+      const text = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
+      const confirmationCode = this.extractConfirmationCode(text);
+      const screenshot = await this.captureScreenshot(page, codigo);
+
+      return {
+        confirmado: true,
+        codigo_confirmacao: confirmationCode,
+        screenshot_base64: screenshot.base64,
+        screenshot_path: screenshot.path,
+        mensagem_erro: null,
+        status: "encontrado",
+        codigo_bilhete: codigo,
+        dados_bilhete: search.dados_bilhete
+      };
+    } catch (error) {
+      return {
+        confirmado: false,
+        codigo_confirmacao: null,
+        screenshot_base64: null,
+        screenshot_path: null,
+        mensagem_erro: error instanceof Error ? error.message : "Erro desconhecido",
+        status: "erro",
+        codigo_bilhete: codigo,
+        dados_bilhete: null
+      };
+    } finally {
+      await context?.close().catch(() => undefined);
+      await browser?.close().catch(() => undefined);
+    }
+  }
+
+  private async createBrowserContext(): Promise<{ context: BrowserContext; browser: Browser | null }> {
+    const contextOptions: BrowserContextOptions = {
+      viewport: { width: 1366, height: 900 },
+      ignoreHTTPSErrors: true,
+      storageState: config.storageStatePath || undefined
+    };
+
+    if (config.playwrightWsEndpoint) {
+      const browser = config.playwrightConnectMode === "playwright"
+        ? await chromium.connect(config.playwrightWsEndpoint)
+        : await chromium.connectOverCDP(config.playwrightWsEndpoint);
+      const context = await browser.newContext(contextOptions);
+      return { context, browser };
+    }
+
+    if (config.storageStatePath) {
+      const browser = await chromium.launch({ headless: config.headless });
+      const context = await browser.newContext(contextOptions);
+      return { context, browser };
+    }
+
+    const context = await chromium.launchPersistentContext(config.playwrightUserDataDir, {
+      headless: config.headless,
+      viewport: contextOptions.viewport,
+      ignoreHTTPSErrors: true
+    });
+
+    return { context, browser: null };
+  }
+
+  private async searchTicket(page: Page, codigo: string): Promise<TicketSearchResult> {
+    await page.goto(config.targetUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: config.browserTimeoutMs
+    });
+
+    const input = await this.firstVisibleLocator(page, [
+      () => page.locator('input[name*="codigo" i]').first(),
+      () => page.locator("input#txtCodigo").first(),
+      () => page.locator('input[type="text"]').first(),
+      () => page.locator("input:not([type])").first()
+    ]);
+
+    if (!input) {
+      return await this.resultFromPage(page, "erro");
+    }
+
+    await input.fill("");
+    await input.fill(codigo);
+
+    const insertedValue = await input.inputValue().catch(() => "");
+    if (insertedValue.trim().toUpperCase() !== codigo.toUpperCase()) {
+      return await this.resultFromPage(page, "erro");
+    }
+
+    const searchButton = await this.firstVisibleLocator(page, [
+      () => page.getByRole("button", { name: SEARCH_BUTTON_TEXT }),
+      () => page.getByRole("link", { name: SEARCH_BUTTON_TEXT }),
+      () => page.locator("input[type='submit'], input[type='button'], button, a").filter({ hasText: SEARCH_BUTTON_TEXT })
+    ]);
+
+    if (!searchButton) {
+      return await this.resultFromPage(page, "erro");
+    }
+
+    await Promise.all([
+      page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => undefined),
+      searchButton.click()
+    ]);
+
+    await page.waitForTimeout(800);
+    return await this.analyzePage(page);
+  }
+
+  private async analyzePage(page: Page): Promise<TicketSearchResult> {
+    const bodyText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
+    const status = await this.detectStatus(page, bodyText);
+    return await this.resultFromPage(page, status);
+  }
+
+  private async detectStatus(page: Page, bodyText: string): Promise<TicketSearchResult["status"]> {
+    if (NOT_FOUND_TEXT.test(bodyText)) {
+      return "nao_encontrado";
+    }
+
+    const confirmButton = await this.firstVisibleLocator(page, [
+      () => page.getByRole("button", { name: CONFIRM_BUTTON_TEXT }),
+      () => page.getByText(CONFIRM_BUTTON_TEXT, { exact: false }),
+      () => page.locator("input[type='submit'], input[type='button'], button").filter({ hasText: CONFIRM_BUTTON_TEXT })
+    ], 1_000);
+
+    if (confirmButton) {
+      return "encontrado";
+    }
+
+    const tableRows = await page.locator("table tr").count().catch(() => 0);
+
+    if (tableRows > 1 && FOUND_HINT_TEXT.test(bodyText)) {
+      return "encontrado";
+    }
+
+    return "nao_encontrado";
+  }
+
+  private async resultFromPage(page: Page, status: TicketSearchResult["status"]): Promise<TicketSearchResult> {
+    const html = await page.content().catch(() => "");
+    const text = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
+    const dados = status === "encontrado" ? await this.extractTicketData(page) : null;
+
+    return {
+      status,
+      dados_bilhete: dados,
+      html_resultado: html,
+      texto_resultado: text
+    };
+  }
+
+  private async extractTicketData(page: Page): Promise<Record<string, unknown>> {
+    return await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll("table tr"))
+        .map((row) => Array.from(row.querySelectorAll("th,td")).map((cell) => (cell.textContent ?? "").trim()).filter(Boolean))
+        .filter((cells) => cells.length > 0);
+
+      const fields = Array.from(document.querySelectorAll("label, .label, .form-label, span, strong"))
+        .map((element) => (element.textContent ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 80);
+
+      return {
+        rows,
+        fields,
+        url: window.location.href,
+        title: document.title
+      };
+    });
+  }
+
+  private async captureScreenshot(page: Page, codigo: string): Promise<{ path: string | null; base64: string }> {
+    const buffer = await page.screenshot({ fullPage: true });
+    let filePath: string | null = null;
+
+    if (config.storeScreenshotsLocal) {
+      const dir = path.resolve("data", "screenshots");
+      await mkdir(dir, { recursive: true });
+
+      const safeCode = codigo.replace(/[^A-Z0-9]+/gi, "-").replace(/^-|-$/g, "");
+      filePath = path.join(dir, `${safeCode}-${Date.now()}.png`);
+      await writeFile(filePath, buffer);
+    }
+
+    return { path: filePath, base64: buffer.toString("base64") };
+  }
+
+  private extractConfirmationCode(text: string): string | null {
+    const patterns = [
+      /(?:confirmação|confirmacao|protocolo|comprovante|número|numero)\D{0,30}([A-Z0-9][A-Z0-9._-]{3,})/i,
+      /(?:cód\.?|codigo|código)\D{0,30}([A-Z0-9][A-Z0-9._-]{3,})/i
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match?.[1]) {
+        return match[1].toUpperCase();
+      }
+    }
+
+    return null;
+  }
+
+  private async firstVisibleLocator(page: Page, factories: Array<() => Locator>, timeout = config.browserTimeoutMs): Promise<Locator | null> {
+    const deadline = Date.now() + timeout;
+
+    while (Date.now() < deadline) {
+      for (const factory of factories) {
+        const locator = factory().first();
+
+        if (await locator.isVisible({ timeout: 250 }).catch(() => false)) {
+          return locator;
+        }
+      }
+
+      await page.waitForTimeout(100).catch(() => undefined);
+    }
+
+    return null;
+  }
+}

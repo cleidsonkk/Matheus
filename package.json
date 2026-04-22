@@ -1,0 +1,27 @@
+{
+  "name": "validador-bilhetes-whatsapp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc",
+    "check": "tsc --noEmit -p tsconfig.check.json",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "playwright:install": "playwright install chromium"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.1",
+    "@vercel/functions": "^2.0.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "playwright": "^1.50.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

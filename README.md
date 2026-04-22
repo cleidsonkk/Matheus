@@ -1,0 +1,71 @@
+# Validador automático de bilhetes
+
+Sistema Node.js/TypeScript para receber mensagens de WhatsApp, extrair código de bilhete, consultar `https://www.esportese.bet/bilhete3.aspx`, confirmar pré-bilhete quando encontrado e responder o cliente com texto e comprovante.
+
+Arquitetura alvo: Vercel Functions + Neon PostgreSQL + WhatsApp API configurável.
+
+## Instalação
+
+```bash
+npm install
+npm run playwright:install
+copy .env.example .env
+```
+
+Crie um banco Neon pelo Vercel Marketplace e preencha `DATABASE_URL`. Depois rode:
+
+```bash
+npm run db:migrate
+```
+
+Edite `.env` com o provedor de WhatsApp:
+
+- `WHATSAPP_PROVIDER=none`: apenas registra no console/log.
+- `WHATSAPP_PROVIDER=evolution`: usa Evolution API.
+- `WHATSAPP_PROVIDER=zapi`: usa Z-API.
+- `WHATSAPP_PROVIDER=meta`: usa Meta Cloud API.
+
+## Rodar
+
+```bash
+npm run dev
+```
+
+Webhook:
+
+```text
+POST http://localhost:3000/webhook/whatsapp
+```
+
+Health check:
+
+```text
+GET http://localhost:3000/health
+```
+
+Teste manual:
+
+```bash
+curl -X POST http://localhost:3000/validate \
+  -H "Content-Type: application/json" \
+  -d "{\"numero\":\"5511999999999\",\"mensagem\":\"V072 ZHQW NZV9\"}"
+```
+
+## Observações de produção
+
+- Em Vercel, prefira `PLAYWRIGHT_WS_ENDPOINT` apontando para um navegador remoto seguro. Isso evita depender de Chromium local dentro da Function.
+- Em ambiente local, `PLAYWRIGHT_USER_DATA_DIR=.playwright-profile` preserva cookies/sessão do navegador.
+- Se o site exigir login, faça o login uma vez em ambiente seguro e use `STORAGE_STATE_PATH` ou um perfil persistente.
+- Use `WEBHOOK_SECRET` e envie o header `x-webhook-secret` no provedor para rejeitar chamadas não autorizadas.
+- Opcionalmente restrinja `WEBHOOK_ALLOWED_IPS` com IPs separados por vírgula.
+- Nunca coloque tokens em variáveis `NEXT_PUBLIC_`; todos os segredos ficam em variáveis server-side na Vercel.
+- O histórico de validações fica em `validation_jobs` no Neon. Prints são enviados ao WhatsApp e somente hash/tamanho ficam salvos no banco.
+
+## Deploy na Vercel
+
+1. Crie o projeto na Vercel.
+2. Instale Neon pelo Marketplace da Vercel para provisionar `DATABASE_URL`.
+3. Configure as variáveis de WhatsApp, `WEBHOOK_SECRET`, `TARGET_URL` e, em produção, `PLAYWRIGHT_WS_ENDPOINT`.
+4. Rode `vercel env pull .env.local --yes` para testar localmente com as mesmas variáveis.
+5. Rode `npm run db:migrate`.
+6. Publique com `vercel deploy --prod`.
