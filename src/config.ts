@@ -24,7 +24,7 @@ export const config = {
   headless: boolFromEnv(process.env.HEADLESS, true),
   browserTimeoutMs: intFromEnv(process.env.BROWSER_TIMEOUT_MS, 10_000),
   confirmPreTicket: boolFromEnv(process.env.CONFIRM_PRE_TICKET, true),
-  playwrightUserDataDir: process.env.PLAYWRIGHT_USER_DATA_DIR ?? ".playwright-profile",
+  playwrightUserDataDir: process.env.PLAYWRIGHT_USER_DATA_DIR ?? (process.env.VERCEL ? "/tmp/playwright-profile" : ".playwright-profile"),
   playwrightWsEndpoint: process.env.PLAYWRIGHT_WS_ENDPOINT ?? "",
   playwrightConnectMode: (process.env.PLAYWRIGHT_CONNECT_MODE ?? "cdp").toLowerCase(),
   storageStatePath: process.env.STORAGE_STATE_PATH ?? "",

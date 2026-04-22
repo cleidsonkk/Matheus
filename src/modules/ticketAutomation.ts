@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from "playwright";
+import serverlessChromium from "@sparticuz/chromium";
+import { chromium as playwrightChromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from "playwright";
 import { config } from "../config.js";
 import type { TicketConfirmationResult, TicketSearchResult } from "../types.js";
 
@@ -127,19 +128,29 @@ export class TicketAutomation {
 
     if (config.playwrightWsEndpoint) {
       const browser = config.playwrightConnectMode === "playwright"
-        ? await chromium.connect(config.playwrightWsEndpoint)
-        : await chromium.connectOverCDP(config.playwrightWsEndpoint);
+        ? await playwrightChromium.connect(config.playwrightWsEndpoint)
+        : await playwrightChromium.connectOverCDP(config.playwrightWsEndpoint);
+      const context = await browser.newContext(contextOptions);
+      return { context, browser };
+    }
+
+    if (process.env.VERCEL) {
+      const browser = await playwrightChromium.launch({
+        args: serverlessChromium.args,
+        executablePath: await serverlessChromium.executablePath(),
+        headless: true
+      });
       const context = await browser.newContext(contextOptions);
       return { context, browser };
     }
 
     if (config.storageStatePath) {
-      const browser = await chromium.launch({ headless: config.headless });
+      const browser = await playwrightChromium.launch({ headless: config.headless });
       const context = await browser.newContext(contextOptions);
       return { context, browser };
     }
 
-    const context = await chromium.launchPersistentContext(config.playwrightUserDataDir, {
+    const context = await playwrightChromium.launchPersistentContext(config.playwrightUserDataDir, {
       headless: config.headless,
       viewport: contextOptions.viewport,
       ignoreHTTPSErrors: true

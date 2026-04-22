@@ -63,6 +63,11 @@ export async function processValidationJob(job: ValidationJob): Promise<void> {
     codigo_confirmacao: result.codigo_confirmacao,
     screenshot_path: result.screenshot_path,
     mensagem_erro: result.mensagem_erro
+  }).catch((error) => {
+    log("warn", "Falha ao gravar audit log local", {
+      jobId: job.id,
+      error: error instanceof Error ? error.message : String(error)
+    });
   });
 
   log("info", "Validação finalizada", {
