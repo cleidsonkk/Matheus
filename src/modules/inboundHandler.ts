@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { config } from "../config.js";
 import type { InboundMessage, ValidationJob } from "../types.js";
-import { buildExtractionFailureMessage } from "./messageBuilder.js";
+import { buildExtractionFailureMessage, buildTelegramWelcomeMessage } from "./messageBuilder.js";
 import { sendText } from "./notifier.js";
 import { createValidationJob, hasDatabase, recordExtractionFailure } from "./persistence.js";
 import { extractTicketCode } from "./ticketExtractor.js";
@@ -19,6 +19,11 @@ export async function prepareInboundForProcessing(inbound: InboundMessage): Prom
   const extraction = extractTicketCode(inbound.mensagem);
 
   if (!extraction.codigo_encontrado || !extraction.codigo) {
+    if (inbound.channel === "telegram" && /^\/(?:start|help)(?:@\w+)?(?:\s|$)/i.test(inbound.mensagem.trim())) {
+      await sendText(inbound.channel, inbound.recipientId, buildTelegramWelcomeMessage());
+      return { kind: "ignored", reason: "telegram_command" };
+    }
+
     await sendText(inbound.channel, inbound.recipientId, buildExtractionFailureMessage());
     await recordExtractionFailure({
       channel: inbound.channel,

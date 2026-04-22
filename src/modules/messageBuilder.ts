@@ -60,6 +60,15 @@ export function buildCustomerMessage(result: MessageInput): string {
 export function buildExtractionFailureMessage(): string {
   return [
     "⚠️ Não consegui identificar o código do bilhete.",
-    "Envie no formato XXXX XXXX XXXX."
+    "Envie o código com 12 caracteres, com ou sem espaços.",
+    "Exemplo: ABCD 1234 WXYZ"
+  ].join("\n");
+}
+
+export function buildTelegramWelcomeMessage(): string {
+  return [
+    "Olá! Envie o código do bilhete para validação.",
+    "Pode mandar com espaços ou tudo junto.",
+    "Exemplo: ABCD 1234 WXYZ"
   ].join("\n");
 }
