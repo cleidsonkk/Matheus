@@ -620,6 +620,32 @@ function renderHtml(data: AdminDashboardData): string {
       background: var(--accent);
       box-shadow: 0 0 0 4px rgba(15, 118, 110, .12);
     }
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .logout {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      background: var(--surface);
+      color: #334155;
+      font-weight: 800;
+      padding: 6px 13px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .logout:hover {
+      border-color: #f5b9b4;
+      background: var(--bad-bg);
+      color: var(--bad);
+    }
 
     dl { margin: 0; }
     dt { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
@@ -686,6 +712,7 @@ function renderHtml(data: AdminDashboardData): string {
     @media (max-width: 760px) {
       .page { width: min(100% - 20px, 720px); padding-top: 16px; }
       .topbar { align-items: stretch; flex-direction: column; gap: 10px; }
+      .top-actions { justify-content: flex-start; }
       h1 { font-size: 22px; }
       .filters, .metrics, .split, .ticket-grid, .message-grid { grid-template-columns: 1fr; }
       .metric { min-height: auto; }
@@ -730,7 +757,10 @@ function renderHtml(data: AdminDashboardData): string {
         <h1>Validador de Bilhetes</h1>
         <p class="muted">Atualizado em <span id="last-update">${lastUpdate}</span></p>
       </div>
-      <span class="live" id="live-status">Ao vivo</span>
+      <div class="top-actions">
+        <span class="live" id="live-status">Ao vivo</span>
+        <a class="logout" href="/admin/logout">Sair</a>
+      </div>
     </header>
 
     ${renderFilters(data)}
