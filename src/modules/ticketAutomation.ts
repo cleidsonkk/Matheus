@@ -34,12 +34,18 @@ export class TicketAutomation {
       const search = await this.searchTicket(page, codigo);
 
       if (search.status !== "encontrado") {
+        const screenshot = search.status === "erro"
+          ? await this.captureScreenshot(page, codigo).catch(() => null)
+          : null;
+
         return {
           confirmado: false,
           codigo_confirmacao: null,
-          screenshot_base64: null,
-          screenshot_path: null,
-          mensagem_erro: search.status === "erro" ? "Erro ao consultar o bilhete" : null,
+          screenshot_base64: screenshot?.base64 ?? null,
+          screenshot_path: screenshot?.path ?? null,
+          mensagem_erro: search.status === "erro"
+            ? `Erro ao consultar o bilhete: ${this.compactText(search.texto_resultado)}`
+            : null,
           status: search.status,
           codigo_bilhete: codigo,
           dados_bilhete: search.dados_bilhete
@@ -246,6 +252,11 @@ export class TicketAutomation {
       html_resultado: html,
       texto_resultado: text
     };
+  }
+
+  private compactText(text: string): string {
+    const compacted = text.replace(/\s+/g, " ").trim();
+    return compacted ? compacted.slice(0, 500) : "pagina sem texto visivel";
   }
 
   private async extractTicketData(page: Page): Promise<Record<string, unknown>> {
