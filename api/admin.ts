@@ -7,6 +7,7 @@ import {
   type AdminTicket,
   loadAdminDashboardData
 } from "../src/modules/adminDashboard.js";
+import { formatMoney as formatCreditMoney, parseMoneyInput, recordCustomerCreditPayment, setCustomerCreditLimit } from "../src/modules/credit.js";
 
 const STATUSES = [
   "todos",
@@ -15,6 +16,7 @@ const STATUSES = [
   "nao_encontrado",
   "codigo_nao_encontrado",
   "erro",
+  "limite_excedido",
   "queued",
   "processing"
 ] as const;
@@ -31,6 +33,80 @@ function queryStringValue(value: unknown): string {
   }
 
   return "";
+}
+
+async function readForm(req: any): Promise<URLSearchParams> {
+  if (typeof req.body === "string") {
+    return new URLSearchParams(req.body);
+  }
+
+  if (req.body && typeof req.body === "object") {
+    const params = new URLSearchParams();
+
+    for (const [key, value] of Object.entries(req.body)) {
+      if (typeof value === "string") {
+        params.set(key, value);
+      } else if (typeof value === "number") {
+        params.set(key, String(value));
+      }
+    }
+
+    return params;
+  }
+
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+
+  return new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
+}
+
+async function handleAdminAction(req: any, res: any): Promise<void> {
+  const form = await readForm(req);
+  const action = form.get("action") ?? "";
+  const channel = form.get("channel") ?? "";
+  const phone = form.get("phone") ?? "";
+  const customerName = form.get("customerName") ?? "Cliente";
+
+  if (!channel || !phone) {
+    res.status(400).send("Cliente inválido.");
+    return;
+  }
+
+  if (action === "set_credit_limit") {
+    const limit = parseMoneyInput(form.get("creditLimit"));
+    await setCustomerCreditLimit({
+      channel,
+      phone,
+      customerName,
+      creditLimit: limit,
+      note: null
+    });
+  } else if (action === "record_payment") {
+    const amount = parseMoneyInput(form.get("paymentAmount")) ?? 0;
+
+    if (amount <= 0) {
+      res.status(400).send("Valor de pagamento inválido.");
+      return;
+    }
+
+    await recordCustomerCreditPayment({
+      channel,
+      phone,
+      customerName,
+      amount,
+      note: null
+    });
+  } else {
+    res.status(400).send("Ação inválida.");
+    return;
+  }
+
+  res.statusCode = 303;
+  res.setHeader("Location", "/api/admin");
+  res.end();
 }
 
 function escapeHtml(value: unknown): string {
@@ -106,6 +182,7 @@ function statusLabel(status: string): string {
     nao_encontrado: "Não encontrado",
     codigo_nao_encontrado: "Código não identificado",
     erro: "Erro",
+    limite_excedido: "Limite excedido",
     queued: "Na fila",
     processing: "Processando",
     todos: "Todos"
@@ -129,7 +206,7 @@ function statusClass(status: string, confirmed = false): string {
     return "ok";
   }
 
-  if (status === "erro" || status === "nao_encontrado" || status === "codigo_nao_encontrado") {
+  if (status === "erro" || status === "nao_encontrado" || status === "codigo_nao_encontrado" || status === "limite_excedido") {
     return "bad";
   }
 
@@ -201,7 +278,7 @@ function renderBreakdown(title: string, items: AdminBreakdown[], formatter: (lab
 
 function renderCustomerRows(customers: AdminCustomerSummary[]): string {
   if (customers.length === 0) {
-    return `<tr><td colspan="11" class="empty">Nenhum cliente encontrado.</td></tr>`;
+    return `<tr><td colspan="16" class="empty">Nenhum cliente encontrado.</td></tr>`;
   }
 
   return customers.map((customer) => `
@@ -214,12 +291,36 @@ function renderCustomerRows(customers: AdminCustomerSummary[]): string {
       <td data-label="Confirmados" class="num">${formatInteger(customer.confirmed)}</td>
       <td data-label="Jogos" class="num">${formatInteger(customer.games)}</td>
       <td data-label="Valor total" class="num">${formatMoney(customer.amount)}</td>
+      <td data-label="Limite" class="num">${formatCreditMoney(customer.credit.limit)}</td>
+      <td data-label="Em aberto" class="num">${formatMoney(customer.credit.outstanding)}</td>
+      <td data-label="Disponível" class="num">${formatCreditMoney(customer.credit.available)}</td>
       <td data-label="Média por bilhete" class="num">${formatMoney(customer.averageTicketAmount)}</td>
       <td data-label="Média por jogo" class="num">${formatMoney(customer.averageGameAmount)}</td>
       <td data-label="Prêmio" class="num">${formatMoney(customer.prize)}</td>
       <td data-label="Último envio">
         ${formatDate(customer.lastActivity)}
         ${customer.lastTicketCode ? `<small>${escapeHtml(customer.lastTicketCode)}</small>` : ""}
+      </td>
+      <td data-label="Financeiro">
+        <div class="money-actions">
+          <form method="post" action="/api/admin">
+            <input type="hidden" name="action" value="set_credit_limit">
+            <input type="hidden" name="channel" value="${escapeHtml(customer.channel)}">
+            <input type="hidden" name="phone" value="${escapeHtml(customer.contact)}">
+            <input type="hidden" name="customerName" value="${escapeHtml(customer.customerName)}">
+            <input name="creditLimit" inputmode="decimal" placeholder="Limite" value="${customer.credit.limit === null ? "" : escapeHtml(customer.credit.limit.toFixed(2).replace(".", ","))}">
+            <button type="submit">Salvar</button>
+          </form>
+          <form method="post" action="/api/admin">
+            <input type="hidden" name="action" value="record_payment">
+            <input type="hidden" name="channel" value="${escapeHtml(customer.channel)}">
+            <input type="hidden" name="phone" value="${escapeHtml(customer.contact)}">
+            <input type="hidden" name="customerName" value="${escapeHtml(customer.customerName)}">
+            <input name="paymentAmount" inputmode="decimal" placeholder="Pagamento">
+            <button type="submit">Baixar</button>
+          </form>
+        </div>
+        <small>Pago: ${formatMoney(customer.credit.payments)} · Reservado: ${formatMoney(customer.credit.reserved)}</small>
       </td>
     </tr>
   `).join("");
@@ -537,7 +638,7 @@ function renderHtml(data: AdminDashboardData): string {
       box-shadow: var(--shadow);
       margin-bottom: 20px;
     }
-    table { width: 100%; min-width: 1060px; border-collapse: collapse; }
+    table { width: 100%; min-width: 1380px; border-collapse: collapse; }
     th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
     th {
       position: sticky;
@@ -551,6 +652,27 @@ function renderHtml(data: AdminDashboardData): string {
     td strong { display: block; }
     td small { display: block; margin-top: 3px; }
     .num { text-align: right; white-space: nowrap; }
+    .money-actions {
+      display: grid;
+      gap: 6px;
+      min-width: 190px;
+    }
+    .money-actions form {
+      display: grid;
+      grid-template-columns: minmax(78px, 1fr) auto;
+      gap: 6px;
+      align-items: center;
+    }
+    .money-actions input,
+    .money-actions button {
+      min-height: 32px;
+      padding: 6px 8px;
+      font-size: 12px;
+    }
+    .money-actions button {
+      width: auto;
+      min-width: 62px;
+    }
     .empty, .empty-block, .empty-text {
       color: var(--muted);
       text-align: center;
@@ -796,10 +918,14 @@ function renderHtml(data: AdminDashboardData): string {
               <th>Confirmados</th>
               <th>Jogos</th>
               <th>Valor total</th>
+              <th>Limite</th>
+              <th>Em aberto</th>
+              <th>Disponível</th>
               <th>Média bilhete</th>
               <th>Média jogo</th>
               <th>Prêmio</th>
               <th>Último envio</th>
+              <th>Financeiro</th>
             </tr>
           </thead>
           <tbody>${renderCustomerRows(data.customers)}</tbody>
@@ -880,6 +1006,16 @@ export default async function handler(req: any, res: any): Promise<void> {
   }
 
   try {
+    if (req.method === "POST") {
+      await handleAdminAction(req, res);
+      return;
+    }
+
+    if (req.method && req.method !== "GET") {
+      res.status(405).send("Metodo nao permitido.");
+      return;
+    }
+
     const data = await loadAdminDashboardData({
       q: queryStringValue(req.query.q),
       status: queryStringValue(req.query.status) || "todos",

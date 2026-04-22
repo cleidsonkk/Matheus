@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS validation_jobs (
   delivery_error text,
   raw_payload jsonb,
   result_payload jsonb,
+  ticket_amount numeric(12,2),
+  ticket_prize numeric(12,2),
+  ticket_game_count integer,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   processed_at timestamptz
@@ -24,6 +27,11 @@ CREATE TABLE IF NOT EXISTS validation_jobs (
 
 ALTER TABLE validation_jobs
   ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'whatsapp';
+
+ALTER TABLE validation_jobs
+  ADD COLUMN IF NOT EXISTS ticket_amount numeric(12,2),
+  ADD COLUMN IF NOT EXISTS ticket_prize numeric(12,2),
+  ADD COLUMN IF NOT EXISTS ticket_game_count integer;
 
 DROP INDEX IF EXISTS validation_jobs_external_message_id_idx;
 
@@ -42,6 +50,44 @@ CREATE INDEX IF NOT EXISTS validation_jobs_status_idx
 
 CREATE INDEX IF NOT EXISTS validation_jobs_created_at_idx
   ON validation_jobs (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS customer_credit_accounts (
+  channel text NOT NULL,
+  phone text NOT NULL,
+  customer_name text,
+  credit_limit numeric(12,2),
+  note text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (channel, phone)
+);
+
+CREATE TABLE IF NOT EXISTS customer_credit_payments (
+  id uuid PRIMARY KEY,
+  channel text NOT NULL,
+  phone text NOT NULL,
+  amount numeric(12,2) NOT NULL CHECK (amount > 0),
+  note text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS customer_credit_payments_customer_created_at_idx
+  ON customer_credit_payments (channel, phone, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS customer_credit_reservations (
+  job_id uuid PRIMARY KEY REFERENCES validation_jobs(id) ON DELETE CASCADE,
+  channel text NOT NULL,
+  phone text NOT NULL,
+  ticket_code text,
+  amount numeric(12,2) NOT NULL CHECK (amount >= 0),
+  status text NOT NULL DEFAULT 'active',
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS customer_credit_reservations_customer_status_idx
+  ON customer_credit_reservations (channel, phone, status, expires_at);
 
 CREATE TABLE IF NOT EXISTS security_events (
   id uuid PRIMARY KEY,

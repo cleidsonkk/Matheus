@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { config } from "../config.js";
 import type { InboundMessage, ValidationJob } from "../types.js";
-import { buildExtractionFailureMessage, buildTelegramWelcomeMessage } from "./messageBuilder.js";
+import { getCustomerCreditSummary } from "./credit.js";
+import { buildExtractionFailureMessage, buildMultipleCodesMessage, buildTelegramWelcomeMessage } from "./messageBuilder.js";
 import { sendText } from "./notifier.js";
 import { createValidationJob, hasDatabase, recordExtractionFailure } from "./persistence.js";
-import { extractTicketCode } from "./ticketExtractor.js";
+import { extractTicketCode, extractTicketCodes } from "./ticketExtractor.js";
 
 export type InboundHandleResult =
   | { kind: "ignored"; reason: string }
@@ -14,6 +15,17 @@ export type InboundHandleResult =
 export async function prepareInboundForProcessing(inbound: InboundMessage): Promise<InboundHandleResult> {
   if (inbound.mensagem.length > config.maxMessageLength) {
     return { kind: "ignored", reason: "mensagem_muito_longa" };
+  }
+
+  const codes = extractTicketCodes(inbound.mensagem);
+
+  if (codes.length > 1) {
+    const summary = hasDatabase()
+      ? await getCustomerCreditSummary(inbound.channel, inbound.recipientId).catch(() => null)
+      : null;
+
+    await sendText(inbound.channel, inbound.recipientId, buildMultipleCodesMessage(summary));
+    return { kind: "ignored", reason: "multiplos_codigos" };
   }
 
   const extraction = extractTicketCode(inbound.mensagem);

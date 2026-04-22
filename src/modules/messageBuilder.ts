@@ -1,10 +1,12 @@
 import type { TicketConfirmationResult, TicketStatus } from "../types.js";
+import { formatMoney, type CustomerCreditSummary } from "./credit.js";
 
 type MessageInput = Pick<
   TicketConfirmationResult,
   "confirmado" | "codigo_bilhete" | "codigo_confirmacao" | "mensagem_erro" | "dados_bilhete"
 > & {
   status: TicketStatus;
+  credit?: TicketConfirmationResult["credit"];
 };
 
 function getStatusDescription(result: MessageInput): string | null {
@@ -19,6 +21,23 @@ function getStatusDescription(result: MessageInput): string | null {
 }
 
 export function buildCustomerMessage(result: MessageInput): string {
+  if (result.status === "limite_excedido") {
+    const credit = result.credit;
+    const lines = [
+      "⚠️ Este bilhete ultrapassa seu limite atual.",
+      `Código: ${result.codigo_bilhete}`
+    ];
+
+    if (credit?.limit !== undefined) {
+      lines.push(`Limite: ${formatMoney(credit.limit)}`);
+      lines.push(`Em aberto: ${formatMoney(credit.outstanding)}`);
+      lines.push(`Disponível: ${formatMoney(credit.available)}`);
+    }
+
+    lines.push("Procure o administrador para registrar pagamento ou aumentar seu limite.");
+    return lines.join("\n");
+  }
+
   if (result.confirmado) {
     const lines = [
       "✅ Bilhete confirmado com sucesso!",
@@ -63,6 +82,20 @@ export function buildExtractionFailureMessage(): string {
     "Envie o código com 12 caracteres, com ou sem espaços.",
     "Exemplo: ABCD 1234 WXYZ"
   ].join("\n");
+}
+
+export function buildMultipleCodesMessage(summary: CustomerCreditSummary | null): string {
+  const lines = [
+    "⚠️ Envie apenas 1 código de bilhete por vez.",
+    "Assim consigo validar o limite e confirmar com segurança."
+  ];
+
+  if (summary) {
+    lines.push(`Seu limite: ${formatMoney(summary.limit)}`);
+    lines.push(`Disponível agora: ${formatMoney(summary.available)}`);
+  }
+
+  return lines.join("\n");
 }
 
 export function buildTelegramWelcomeMessage(): string {

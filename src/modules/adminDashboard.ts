@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { config } from "../config.js";
+import { extractTicketFinancials, loadCustomerCreditSummaries, type CustomerCreditSummary } from "./credit.js";
 
 type RawRow = Record<string, any>;
 
@@ -67,6 +68,7 @@ export type AdminCustomerSummary = {
   games: number;
   averageTicketAmount: number;
   averageGameAmount: number;
+  credit: CustomerCreditSummary;
   lastActivity: string;
   lastTicketCode: string | null;
 };
@@ -204,8 +206,9 @@ function normalizeTicket(row: RawRow): AdminTicket {
   const aposta = ticketPayload.aposta ?? {};
   const siteCustomerName = nullableString(aposta.cliente);
   const customer = customerFromRaw(row.raw_payload ?? {}, siteCustomerName);
-  const amount = numberFrom(aposta.vl_aposta ?? aposta.valor ?? aposta.amount);
-  const prize = numberFrom(aposta.vl_premio ?? aposta.premio ?? aposta.prize);
+  const financials = extractTicketFinancials(ticketPayload);
+  const amount = numberFrom(row.ticket_amount) || financials.amount;
+  const prize = numberFrom(row.ticket_prize) || financials.prize;
   const games = extractGames(ticketPayload, amount);
 
   return {
@@ -258,6 +261,15 @@ function groupCustomers(tickets: AdminTicket[]): AdminCustomerSummary[] {
       games: 0,
       averageTicketAmount: 0,
       averageGameAmount: 0,
+      credit: {
+        limited: false,
+        limit: null,
+        used: 0,
+        payments: 0,
+        reserved: 0,
+        outstanding: 0,
+        available: null
+      },
       lastTicketCode: ticket.ticketCode,
       lastActivity: ticket.createdAt
     };
@@ -373,6 +385,9 @@ export async function loadAdminDashboardData(input: {
       delivery_error,
       raw_payload,
       result_payload,
+      ticket_amount,
+      ticket_prize,
+      ticket_game_count,
       created_at,
       updated_at,
       processed_at
@@ -385,6 +400,14 @@ export async function loadAdminDashboardData(input: {
   const rows = await neon(config.databaseUrl).query(query, params);
   const tickets = rows.map(normalizeTicket);
   const customers = groupCustomers(tickets);
+  const creditSummaries = await loadCustomerCreditSummaries(customers.map((customer) => ({
+    channel: customer.channel,
+    phone: customer.contact
+  })));
+
+  for (const customer of customers) {
+    customer.credit = creditSummaries.get(`${customer.channel}:${customer.contact}`) ?? customer.credit;
+  }
   const confirmed = tickets.filter((ticket) => ticket.confirmed).length;
   const found = tickets.filter((ticket) => ticket.status === "encontrado").length;
   const notFound = tickets.filter((ticket) => ticket.status === "nao_encontrado" || ticket.status === "codigo_nao_encontrado").length;

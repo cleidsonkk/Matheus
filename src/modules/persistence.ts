@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { config } from "../config.js";
 import type { TicketConfirmationResult, ValidationJob } from "../types.js";
+import { extractTicketFinancials } from "./credit.js";
 
 let sqlClient: NeonQueryFunction<false, false> | null = null;
 
@@ -163,6 +164,7 @@ export async function markJobFinished(jobId: string, result: TicketConfirmationR
     ? createHash("sha256").update(Buffer.from(result.screenshot_base64, "base64")).digest("hex")
     : null;
   const persistedStatus = result.confirmado ? "confirmado" : result.status;
+  const financials = extractTicketFinancials(result.dados_bilhete);
   const resultPayload = {
     ...result,
     screenshot_base64: result.screenshot_base64 ? "[omitted]" : null
@@ -178,6 +180,9 @@ export async function markJobFinished(jobId: string, result: TicketConfirmationR
       error_message = ${result.mensagem_erro},
       screenshot_sha256 = ${screenshotSha256},
       screenshot_bytes = ${screenshotBytes},
+      ticket_amount = ${financials.amount || null},
+      ticket_prize = ${financials.prize || null},
+      ticket_game_count = ${financials.gameCount || null},
       result_payload = ${JSON.stringify(resultPayload)}::jsonb,
       updated_at = now(),
       processed_at = now()

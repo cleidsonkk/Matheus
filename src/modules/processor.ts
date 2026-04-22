@@ -1,6 +1,12 @@
 import { log } from "../logger.js";
 import type { ValidationJob } from "../types.js";
 import { appendAuditLog } from "./auditLog.js";
+import {
+  commitCustomerCreditReservation,
+  extractTicketFinancials,
+  releaseCustomerCreditReservation,
+  reserveCustomerCredit
+} from "./credit.js";
 import { buildCustomerMessage } from "./messageBuilder.js";
 import { sendImage, sendText } from "./notifier.js";
 import { markDeliveryStatus, markJobFinished, markJobProcessing } from "./persistence.js";
@@ -18,10 +24,33 @@ export async function processValidationJob(job: ValidationJob): Promise<void> {
 
   await markJobProcessing(job.id);
 
-  const result = await automation.validateAndConfirm(job.codigo);
+  let creditReserved = false;
+  const result = await automation.validateAndConfirm(job.codigo, {
+    beforeConfirm: async ({ dados_bilhete }) => {
+      const financials = extractTicketFinancials(dados_bilhete);
+      const decision = await reserveCustomerCredit({
+        jobId: job.id,
+        channel: job.channel,
+        phone: job.recipientId,
+        ticketCode: job.codigo,
+        ticketAmount: financials.amount
+      });
+
+      creditReserved = decision.allowed && Boolean(decision.credit?.limited);
+      return decision;
+    }
+  });
   const message = buildCustomerMessage(result);
 
   await markJobFinished(job.id, result, message);
+
+  if (creditReserved) {
+    if (result.confirmado) {
+      await commitCustomerCreditReservation(job.id);
+    } else {
+      await releaseCustomerCreditReservation(job.id);
+    }
+  }
 
   let textSent = false;
   let imageSent = false;

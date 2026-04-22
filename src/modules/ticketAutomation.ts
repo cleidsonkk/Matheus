@@ -3,8 +3,12 @@ import path from "node:path";
 import serverlessChromium from "@sparticuz/chromium";
 import { chromium as playwrightChromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from "playwright";
 import { config } from "../config.js";
-import type { TicketConfirmationResult, TicketSearchResult } from "../types.js";
+import type { CreditCheckDecision, CreditCheckInput, TicketConfirmationResult, TicketSearchResult } from "../types.js";
 import { canConfirmTicket, confirmTicket, hasTargetLogin, lookupTicket } from "./ticketApi.js";
+
+type TicketAutomationHooks = {
+  beforeConfirm?: (input: CreditCheckInput) => Promise<CreditCheckDecision>;
+};
 
 const SEARCH_BUTTON_TEXT = /pesquisar|buscar|consultar|search|query/i;
 const CONFIRM_BUTTON_TEXT = /confirmar|confirmar bilhete|confirmar pre-bilhete|efetivar/i;
@@ -20,7 +24,7 @@ function normalizeText(text: string): string {
 }
 
 export class TicketAutomation {
-  async validateAndConfirm(codigo: string): Promise<TicketConfirmationResult> {
+  async validateAndConfirm(codigo: string, hooks: TicketAutomationHooks = {}): Promise<TicketConfirmationResult> {
     let context: BrowserContext | null = null;
     let browser: Browser | null = null;
 
@@ -75,6 +79,12 @@ export class TicketAutomation {
               codigo_bilhete: codigo,
               dados_bilhete: apiTicketData
             };
+          }
+
+          const creditBlock = await this.checkCreditBeforeConfirm(codigo, apiTicketData, hooks);
+
+          if (creditBlock) {
+            return creditBlock;
           }
 
           const confirmation = await confirmTicket(codigo, apiFallback.data, apiFallback.source);
@@ -134,6 +144,15 @@ export class TicketAutomation {
         };
       }
 
+      const apiLookup = await lookupTicket(codigo).catch((error) => ({
+        found: false as const,
+        status: null,
+        error: error instanceof Error ? error.message : String(error)
+      }));
+      const ticketDataForResult = apiLookup.found
+        ? { source: apiLookup.source, ...apiLookup.data }
+        : search.dados_bilhete;
+
       if (!config.confirmPreTicket) {
         const screenshot = await this.captureScreenshot(page, codigo);
 
@@ -145,7 +164,7 @@ export class TicketAutomation {
           mensagem_erro: "Confirmacao automatica desativada",
           status: "encontrado",
           codigo_bilhete: codigo,
-          dados_bilhete: search.dados_bilhete
+          dados_bilhete: ticketDataForResult
         };
       }
 
@@ -166,8 +185,14 @@ export class TicketAutomation {
           mensagem_erro: "Botao de confirmacao nao localizado",
           status: "erro",
           codigo_bilhete: codigo,
-          dados_bilhete: search.dados_bilhete
+          dados_bilhete: ticketDataForResult
         };
+      }
+
+      const creditBlock = await this.checkCreditBeforeConfirm(codigo, ticketDataForResult, hooks);
+
+      if (creditBlock) {
+        return creditBlock;
       }
 
       await Promise.all([
@@ -188,7 +213,7 @@ export class TicketAutomation {
         mensagem_erro: null,
         status: "encontrado",
         codigo_bilhete: codigo,
-        dados_bilhete: search.dados_bilhete
+        dados_bilhete: ticketDataForResult
       };
     } catch (error) {
       return {
@@ -205,6 +230,30 @@ export class TicketAutomation {
       await context?.close().catch(() => undefined);
       await browser?.close().catch(() => undefined);
     }
+  }
+
+  private async checkCreditBeforeConfirm(codigo: string, dados_bilhete: Record<string, unknown> | null, hooks: TicketAutomationHooks): Promise<TicketConfirmationResult | null> {
+    if (!hooks.beforeConfirm) {
+      return null;
+    }
+
+    const decision = await hooks.beforeConfirm({ codigo, dados_bilhete });
+
+    if (decision.allowed) {
+      return null;
+    }
+
+    return {
+      confirmado: false,
+      codigo_confirmacao: null,
+      screenshot_base64: null,
+      screenshot_path: null,
+      mensagem_erro: decision.message,
+      status: "limite_excedido",
+      codigo_bilhete: codigo,
+      dados_bilhete,
+      credit: decision.credit
+    };
   }
 
   private async createBrowserContext(): Promise<{ context: BrowserContext; browser: Browser | null }> {

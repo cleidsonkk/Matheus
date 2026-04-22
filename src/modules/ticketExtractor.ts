@@ -13,6 +13,25 @@ function hasDigit(value: string): boolean {
 
 export function extractTicketCode(message: string): ExtractionResult {
   const original = message ?? "";
+  const codes = extractTicketCodes(original);
+
+  if (codes.length === 0) {
+    return {
+      codigo_encontrado: false,
+      codigo: null,
+      mensagem_original: original
+    };
+  }
+
+  return {
+    codigo_encontrado: true,
+    codigo: codes[codes.length - 1],
+    mensagem_original: original
+  };
+}
+
+export function extractTicketCodes(message: string): string[] {
+  const original = message ?? "";
   const candidates: Candidate[] = [];
   let match: RegExpExecArray | null;
 
@@ -26,21 +45,8 @@ export function extractTicketCode(message: string): ExtractionResult {
   }
 
   if (candidates.length === 0) {
-    return {
-      codigo_encontrado: false,
-      codigo: null,
-      mensagem_original: original
-    };
+    return [];
   }
 
-  const candidate = [...candidates]
-    .reverse()
-    .find((item) => hasDigit(item.groups[0]) || hasDigit(item.groups[2]))
-    ?? candidates[candidates.length - 1];
-
-  return {
-    codigo_encontrado: true,
-    codigo: candidate.groups.join(" ").toUpperCase(),
-    mensagem_original: original
-  };
+  return Array.from(new Set(candidates.map((candidate) => candidate.groups.join(" ").toUpperCase())));
 }

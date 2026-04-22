@@ -4,7 +4,27 @@ export type ExtractionResult = {
   mensagem_original: string;
 };
 
-export type TicketStatus = "encontrado" | "nao_encontrado" | "erro";
+export type TicketStatus = "encontrado" | "nao_encontrado" | "erro" | "limite_excedido";
+
+export type CreditSnapshot = {
+  limited: boolean;
+  limit: number | null;
+  used: number;
+  payments: number;
+  reserved: number;
+  outstanding: number;
+  available: number | null;
+  ticketAmount?: number;
+};
+
+export type CreditCheckInput = {
+  codigo: string;
+  dados_bilhete: Record<string, unknown> | null;
+};
+
+export type CreditCheckDecision =
+  | { allowed: true; credit?: CreditSnapshot }
+  | { allowed: false; message: string; credit?: CreditSnapshot };
 
 export type TicketSearchResult = {
   status: TicketStatus;
@@ -22,6 +42,7 @@ export type TicketConfirmationResult = {
   status: TicketStatus;
   codigo_bilhete: string;
   dados_bilhete: Record<string, unknown> | null;
+  credit?: CreditSnapshot;
 };
 
 export type InboundWhatsAppMessage = {
