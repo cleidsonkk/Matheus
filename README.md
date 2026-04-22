@@ -93,3 +93,13 @@ curl -X POST http://localhost:3000/validate \
 4. Rode `vercel env pull .env.local --yes` para testar localmente com as mesmas variáveis.
 5. Rode `npm run db:migrate`.
 6. Publique com `vercel deploy --prod`.
+
+## Login no site de apostas
+
+Para confirmar pre-bilhetes, o site exige sessao autenticada. Capture a sessao em ambiente local:
+
+```bash
+npm run site:capture-session
+```
+
+Uma janela do navegador vai abrir. Faca login no site; o script salva `TARGET_AUTH_TOKEN`, `TARGET_USER_ID`, `TARGET_RTOKEN`, `TARGET_DTOKEN` e `TARGET_IP` em `.env.local`. O `TARGET_DTOKEN` pode ficar vazio, porque o proprio site trata esse campo como opcional. Depois replique as variaveis na Vercel.

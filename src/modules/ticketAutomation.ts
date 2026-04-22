@@ -4,7 +4,7 @@ import serverlessChromium from "@sparticuz/chromium";
 import { chromium as playwrightChromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from "playwright";
 import { config } from "../config.js";
 import type { TicketConfirmationResult, TicketSearchResult } from "../types.js";
-import { hasTargetLogin, lookupTicket } from "./ticketApi.js";
+import { canConfirmTicket, confirmTicket, hasTargetLogin, lookupTicket } from "./ticketApi.js";
 
 const SEARCH_BUTTON_TEXT = /pesquisar|buscar|consultar|search|query/i;
 const CONFIRM_BUTTON_TEXT = /confirmar|confirmar bilhete|confirmar pre-bilhete|efetivar/i;
@@ -42,20 +42,77 @@ export class TicketAutomation {
         }));
 
         if (apiFallback.found) {
+          const apiTicketData = {
+            source: apiFallback.source,
+            ...apiFallback.data
+          };
+
+          if (!config.confirmPreTicket) {
+            const screenshot = await this.captureScreenshot(page, codigo).catch(() => null);
+
+            return {
+              confirmado: false,
+              codigo_confirmacao: null,
+              screenshot_base64: screenshot?.base64 ?? null,
+              screenshot_path: screenshot?.path ?? null,
+              mensagem_erro: "Confirmacao automatica desativada",
+              status: "encontrado",
+              codigo_bilhete: codigo,
+              dados_bilhete: apiTicketData
+            };
+          }
+
+          if (!canConfirmTicket()) {
+            return {
+              confirmado: false,
+              codigo_confirmacao: null,
+              screenshot_base64: null,
+              screenshot_path: null,
+              mensagem_erro: hasTargetLogin()
+                ? "Sessao de login incompleta para confirmar pre-bilhete"
+                : "Bilhete localizado pela API; login do site necessario para confirmar pre-bilhete",
+              status: "erro",
+              codigo_bilhete: codigo,
+              dados_bilhete: apiTicketData
+            };
+          }
+
+          const confirmation = await confirmTicket(codigo, apiFallback.data, apiFallback.source);
+
+          if (confirmation.confirmed) {
+            const receiptUrl = new URL(confirmation.receiptPath, config.targetUrl).toString();
+            await page.goto(receiptUrl, {
+              waitUntil: "domcontentloaded",
+              timeout: config.browserTimeoutMs
+            }).catch(() => undefined);
+
+            await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+            const screenshot = await this.captureScreenshot(page, confirmation.code ?? codigo).catch(() => null);
+
+            return {
+              confirmado: true,
+              codigo_confirmacao: confirmation.code,
+              screenshot_base64: screenshot?.base64 ?? null,
+              screenshot_path: screenshot?.path ?? null,
+              mensagem_erro: null,
+              status: "encontrado",
+              codigo_bilhete: codigo,
+              dados_bilhete: {
+                ...apiTicketData,
+                confirmacao: confirmation.data
+              }
+            };
+          }
+
           return {
             confirmado: false,
             codigo_confirmacao: null,
             screenshot_base64: null,
             screenshot_path: null,
-            mensagem_erro: hasTargetLogin()
-              ? "Bilhete localizado pela API, mas a confirmacao automatica ainda depende da sessao do site"
-              : "Bilhete localizado pela API; login do site necessario para confirmar pre-bilhete",
+            mensagem_erro: confirmation.error ?? "Confirmacao nao concluida",
             status: "erro",
             codigo_bilhete: codigo,
-            dados_bilhete: {
-              source: apiFallback.source,
-              ...apiFallback.data
-            }
+            dados_bilhete: apiTicketData
           };
         }
 
