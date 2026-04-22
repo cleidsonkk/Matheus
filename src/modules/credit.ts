@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 import { config } from "../config.js";
 import type { CreditCheckDecision, CreditSnapshot, ValidationJob } from "../types.js";
+import { nullableMoneyAmount, toMoneyAmount } from "./money.js";
 
 let sqlClient: NeonQueryFunction<false, false> | null = null;
 
@@ -38,39 +39,12 @@ function getSql(): NeonQueryFunction<false, false> {
   return sqlClient;
 }
 
-function numberFrom(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-
-    if (!trimmed) {
-      return 0;
-    }
-
-    const cleaned = trimmed.replace(/[^\d,.-]/g, "");
-    const normalized = cleaned.includes(",")
-      ? cleaned.replace(/\./g, "").replace(",", ".")
-      : cleaned;
-    const parsed = Number.parseFloat(normalized);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  return 0;
-}
-
 function money(value: unknown): number {
-  return Math.max(0, Number(numberFrom(value).toFixed(2)));
+  return toMoneyAmount(value);
 }
 
 function nullableMoney(value: unknown): number | null {
-  if (value === null || value === undefined || String(value).trim() === "") {
-    return null;
-  }
-
-  return money(value);
+  return nullableMoneyAmount(value);
 }
 
 function defaultCreditLimit(): number {

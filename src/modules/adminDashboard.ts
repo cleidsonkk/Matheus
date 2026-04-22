@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { config } from "../config.js";
 import { extractTicketFinancials, loadCustomerCreditSummaries, type CustomerCreditSummary } from "./credit.js";
+import { parseDecimal } from "./money.js";
 
 type RawRow = Record<string, any>;
 
@@ -121,26 +122,7 @@ function pickString(...values: unknown[]): string {
 }
 
 function numberFrom(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-
-    if (!trimmed) {
-      return 0;
-    }
-
-    const cleaned = trimmed.replace(/[^\d,.-]/g, "");
-    const normalized = cleaned.includes(",")
-      ? cleaned.replace(/\./g, "").replace(",", ".")
-      : cleaned;
-    const parsed = Number.parseFloat(normalized);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  return 0;
+  return parseDecimal(value);
 }
 
 function nullableString(value: unknown): string | null {
