@@ -850,7 +850,7 @@ function renderHtml(data: AdminDashboardData): string {
       .metrics { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
       .ticket-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
     }
-    @media (max-width: 760px) {
+    @media (max-width: 820px) {
       .page { width: min(100% - 16px, 720px); padding-top: 14px; padding-bottom: 26px; }
       .topbar { align-items: stretch; flex-direction: column; gap: 10px; }
       .top-actions { justify-content: flex-start; width: 100%; }
