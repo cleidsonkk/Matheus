@@ -73,18 +73,24 @@ function nullableMoney(value: unknown): number | null {
   return money(value);
 }
 
+function defaultCreditLimit(): number {
+  return money(config.customerDefaultCreditLimit);
+}
+
 function rowToCreditSummary(row: CreditRow | undefined, ticketAmount?: number): CustomerCreditSummary {
-  const limited = Boolean(row?.limited);
-  const limit = nullableMoney(row?.credit_limit);
+  const limited = true;
+  const limit = nullableMoney(row?.credit_limit) ?? defaultCreditLimit();
   const used = money(row?.used_amount);
   const payments = money(row?.payment_amount);
   const reserved = money(row?.reserved_amount);
   const outstanding = money(row?.outstanding_amount);
-  const available = limited && limit !== null ? Math.max(0, money(row?.available_amount)) : null;
+  const available = row?.available_amount === null || row?.available_amount === undefined
+    ? Math.max(0, limit - outstanding)
+    : Math.max(0, money(row.available_amount));
 
   return {
     limited,
-    limit: limited ? limit : null,
+    limit,
     used,
     payments,
     reserved,
@@ -95,14 +101,16 @@ function rowToCreditSummary(row: CreditRow | undefined, ticketAmount?: number): 
 }
 
 function emptySummary(): CustomerCreditSummary {
+  const limit = defaultCreditLimit();
+
   return {
-    limited: false,
-    limit: null,
+    limited: true,
+    limit,
     used: 0,
     payments: 0,
     reserved: 0,
     outstanding: 0,
-    available: null
+    available: limit
   };
 }
 
@@ -153,15 +161,16 @@ export async function getCustomerCreditSummary(channel: string, phone: string): 
   }
 
   const sql = getSql();
+  const defaultLimit = defaultCreditLimit();
   const rows = await sql.query(`
     WITH input AS (
-      SELECT $1::text AS channel, $2::text AS phone
+      SELECT $1::text AS channel, $2::text AS phone, $3::numeric AS default_limit
     ),
     account AS (
       SELECT a.credit_limit
       FROM customer_credit_accounts a
       JOIN input i ON i.channel = a.channel AND i.phone = a.phone
-      WHERE a.credit_limit IS NOT NULL
+      LIMIT 1
     ),
     confirmed AS (
       SELECT COALESCE(SUM(v.ticket_amount), 0) AS used_amount
@@ -183,18 +192,18 @@ export async function getCustomerCreditSummary(channel: string, phone: string): 
         AND r.expires_at > now()
     )
     SELECT
-      EXISTS (SELECT 1 FROM account) AS limited,
-      (SELECT credit_limit FROM account LIMIT 1) AS credit_limit,
+      true AS limited,
+      COALESCE((SELECT credit_limit FROM account LIMIT 1), (SELECT default_limit FROM input)) AS credit_limit,
       (SELECT used_amount FROM confirmed) AS used_amount,
       (SELECT payment_amount FROM payments) AS payment_amount,
       (SELECT reserved_amount FROM reserved) AS reserved_amount,
       GREATEST((SELECT used_amount FROM confirmed) - (SELECT payment_amount FROM payments) + (SELECT reserved_amount FROM reserved), 0) AS outstanding_amount,
-      CASE
-        WHEN EXISTS (SELECT 1 FROM account)
-          THEN GREATEST((SELECT credit_limit FROM account LIMIT 1) - GREATEST((SELECT used_amount FROM confirmed) - (SELECT payment_amount FROM payments) + (SELECT reserved_amount FROM reserved), 0), 0)
-        ELSE NULL
-      END AS available_amount
-  `, [channel, phone]);
+      GREATEST(
+        COALESCE((SELECT credit_limit FROM account LIMIT 1), (SELECT default_limit FROM input))
+        - GREATEST((SELECT used_amount FROM confirmed) - (SELECT payment_amount FROM payments) + (SELECT reserved_amount FROM reserved), 0),
+        0
+      ) AS available_amount
+  `, [channel, phone, defaultLimit]);
 
   return rowToCreditSummary(rows[0]);
 }
@@ -208,6 +217,7 @@ export async function loadCustomerCreditSummaries(keys: CustomerKey[]): Promise<
 
   const channels = keys.map((key) => key.channel);
   const phones = keys.map((key) => key.phone);
+  const defaultLimit = defaultCreditLimit();
   const sql = getSql();
   const rows = await sql.query(`
     WITH keys AS (
@@ -240,22 +250,18 @@ export async function loadCustomerCreditSummaries(keys: CustomerKey[]): Promise<
       k.channel,
       k.phone,
       a.credit_limit IS NOT NULL AS limited,
-      a.credit_limit,
+      COALESCE(a.credit_limit, $3::numeric) AS credit_limit,
       COALESCE(c.used_amount, 0) AS used_amount,
       COALESCE(p.payment_amount, 0) AS payment_amount,
       COALESCE(r.reserved_amount, 0) AS reserved_amount,
       GREATEST(COALESCE(c.used_amount, 0) - COALESCE(p.payment_amount, 0) + COALESCE(r.reserved_amount, 0), 0) AS outstanding_amount,
-      CASE
-        WHEN a.credit_limit IS NOT NULL
-          THEN GREATEST(a.credit_limit - GREATEST(COALESCE(c.used_amount, 0) - COALESCE(p.payment_amount, 0) + COALESCE(r.reserved_amount, 0), 0), 0)
-        ELSE NULL
-      END AS available_amount
+      GREATEST(COALESCE(a.credit_limit, $3::numeric) - GREATEST(COALESCE(c.used_amount, 0) - COALESCE(p.payment_amount, 0) + COALESCE(r.reserved_amount, 0), 0), 0) AS available_amount
     FROM keys k
     LEFT JOIN customer_credit_accounts a ON a.channel = k.channel AND a.phone = k.phone
     LEFT JOIN confirmed c ON c.channel = k.channel AND c.phone = k.phone
     LEFT JOIN payments p ON p.channel = k.channel AND p.phone = k.phone
     LEFT JOIN reserved r ON r.channel = k.channel AND r.phone = k.phone
-  `, [channels, phones]);
+  `, [channels, phones, defaultLimit]);
 
   for (const row of rows as CreditRow[]) {
     summaries.set(`${row.channel}:${row.phone}`, rowToCreditSummary(row));
@@ -272,10 +278,6 @@ export async function reserveCustomerCredit(input: CreditReserveInput): Promise<
   const ticketAmount = money(input.ticketAmount);
   const existingSummary = await getCustomerCreditSummary(input.channel, input.phone);
 
-  if (!existingSummary.limited) {
-    return { allowed: true, credit: { ...existingSummary, ticketAmount } };
-  }
-
   if (ticketAmount <= 0) {
     return {
       allowed: false,
@@ -285,6 +287,7 @@ export async function reserveCustomerCredit(input: CreditReserveInput): Promise<
   }
 
   const sql = getSql();
+  const defaultLimit = defaultCreditLimit();
   const rows = await sql.query(`
     WITH input AS (
       SELECT
@@ -292,13 +295,14 @@ export async function reserveCustomerCredit(input: CreditReserveInput): Promise<
         $2::text AS channel,
         $3::text AS phone,
         $4::text AS ticket_code,
-        $5::numeric AS amount
+        $5::numeric AS amount,
+        $6::numeric AS default_limit
     ),
     account AS (
       SELECT a.credit_limit
       FROM customer_credit_accounts a
       JOIN input i ON i.channel = a.channel AND i.phone = a.phone
-      WHERE a.credit_limit IS NOT NULL
+      LIMIT 1
     ),
     confirmed AS (
       SELECT COALESCE(SUM(v.ticket_amount), 0) AS used_amount
@@ -322,24 +326,23 @@ export async function reserveCustomerCredit(input: CreditReserveInput): Promise<
     ),
     decision AS (
       SELECT
-        EXISTS (SELECT 1 FROM account) AS limited,
-        (SELECT credit_limit FROM account LIMIT 1) AS credit_limit,
+        true AS limited,
+        COALESCE((SELECT credit_limit FROM account LIMIT 1), (SELECT default_limit FROM input)) AS credit_limit,
         (SELECT used_amount FROM confirmed) AS used_amount,
         (SELECT payment_amount FROM payments) AS payment_amount,
         (SELECT reserved_amount FROM reserved) AS reserved_amount,
         GREATEST((SELECT used_amount FROM confirmed) - (SELECT payment_amount FROM payments) + (SELECT reserved_amount FROM reserved), 0) AS outstanding_amount,
-        CASE
-          WHEN EXISTS (SELECT 1 FROM account)
-            THEN GREATEST((SELECT credit_limit FROM account LIMIT 1) - GREATEST((SELECT used_amount FROM confirmed) - (SELECT payment_amount FROM payments) + (SELECT reserved_amount FROM reserved), 0), 0)
-          ELSE NULL
-        END AS available_amount,
+        GREATEST(
+          COALESCE((SELECT credit_limit FROM account LIMIT 1), (SELECT default_limit FROM input))
+          - GREATEST((SELECT used_amount FROM confirmed) - (SELECT payment_amount FROM payments) + (SELECT reserved_amount FROM reserved), 0),
+          0
+        ) AS available_amount,
         (SELECT amount FROM input) AS ticket_amount
     ),
     allowed AS (
       SELECT
         *,
         CASE
-          WHEN limited = false THEN true
           WHEN ticket_amount <= available_amount THEN true
           ELSE false
         END AS allowed
@@ -350,8 +353,7 @@ export async function reserveCustomerCredit(input: CreditReserveInput): Promise<
       SELECT i.job_id, i.channel, i.phone, i.ticket_code, i.amount, 'active', now() + interval '30 minutes'
       FROM input i
       CROSS JOIN allowed a
-      WHERE a.limited = true
-        AND a.allowed = true
+      WHERE a.allowed = true
       ON CONFLICT (job_id) DO UPDATE SET
         channel = EXCLUDED.channel,
         phone = EXCLUDED.phone,
@@ -366,7 +368,7 @@ export async function reserveCustomerCredit(input: CreditReserveInput): Promise<
       allowed.*,
       EXISTS (SELECT 1 FROM inserted) AS reservation_created
     FROM allowed
-  `, [input.jobId, input.channel, input.phone, input.ticketCode, ticketAmount]);
+  `, [input.jobId, input.channel, input.phone, input.ticketCode, ticketAmount, defaultLimit]);
 
   const row = rows[0] as CreditRow | undefined;
   const summary = rowToCreditSummary(row, ticketAmount);

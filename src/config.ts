@@ -16,6 +16,12 @@ function intFromEnv(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function floatFromEnv(value: string | undefined, fallback: number): number {
+  const normalized = (value ?? "").replace(",", ".");
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export const config = {
   port: intFromEnv(process.env.PORT, 3000),
   publicBaseUrl: process.env.PUBLIC_BASE_URL ?? "",
@@ -36,6 +42,7 @@ export const config = {
     .filter(Boolean),
   maxMessageLength: intFromEnv(process.env.MAX_MESSAGE_LENGTH, 1_000),
   jobConcurrency: intFromEnv(process.env.JOB_CONCURRENCY, 1),
+  customerDefaultCreditLimit: floatFromEnv(process.env.CUSTOMER_DEFAULT_CREDIT_LIMIT, 150),
   whatsapp: {
     provider: (process.env.WHATSAPP_PROVIDER ?? "none").toLowerCase(),
     apiBaseUrl: process.env.WHATSAPP_API_BASE_URL ?? "",

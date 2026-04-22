@@ -864,10 +864,35 @@ function renderHtml(data: AdminDashboardData): string {
       }
       td:last-child { border-bottom: 0; }
       .num { text-align: left; }
+      td[data-label="Financeiro"] {
+        display: block;
+      }
+      td[data-label="Financeiro"]::before {
+        display: block;
+        margin-bottom: 8px;
+      }
+      .money-actions {
+        min-width: 0;
+        width: 100%;
+      }
+      .money-actions form {
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+      .money-actions input {
+        min-width: 0;
+      }
       .ticket-head { flex-direction: column; }
       .game-fields { grid-template-columns: 1fr; }
       .match { grid-template-columns: 1fr; }
       .match strong:last-child { text-align: left; }
+    }
+    @media (max-width: 420px) {
+      .money-actions form {
+        grid-template-columns: 1fr;
+      }
+      .money-actions button {
+        width: 100%;
+      }
     }
   </style>
 </head>
