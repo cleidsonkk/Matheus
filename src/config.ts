@@ -48,5 +48,13 @@ export const config = {
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
     webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET ?? ""
+  },
+  targetSite: {
+    apiBaseUrl: process.env.TARGET_API_BASE_URL ?? "https://www.esportese.bet/futebolapi",
+    authToken: process.env.TARGET_AUTH_TOKEN ?? "",
+    userId: process.env.TARGET_USER_ID ?? "0",
+    rToken: process.env.TARGET_RTOKEN ?? "",
+    dToken: process.env.TARGET_DTOKEN ?? "",
+    ip: process.env.TARGET_IP ?? ""
   }
 } as const;

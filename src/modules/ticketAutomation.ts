@@ -4,6 +4,7 @@ import serverlessChromium from "@sparticuz/chromium";
 import { chromium as playwrightChromium, type Browser, type BrowserContext, type BrowserContextOptions, type Locator, type Page } from "playwright";
 import { config } from "../config.js";
 import type { TicketConfirmationResult, TicketSearchResult } from "../types.js";
+import { hasTargetLogin, lookupTicket } from "./ticketApi.js";
 
 const SEARCH_BUTTON_TEXT = /pesquisar|buscar|consultar|search|query/i;
 const CONFIRM_BUTTON_TEXT = /confirmar|confirmar bilhete|confirmar pre-bilhete|efetivar/i;
@@ -34,6 +35,30 @@ export class TicketAutomation {
       const search = await this.searchTicket(page, codigo);
 
       if (search.status !== "encontrado") {
+        const apiFallback = await lookupTicket(codigo).catch((error) => ({
+          found: false as const,
+          status: null,
+          error: error instanceof Error ? error.message : String(error)
+        }));
+
+        if (apiFallback.found) {
+          return {
+            confirmado: false,
+            codigo_confirmacao: null,
+            screenshot_base64: null,
+            screenshot_path: null,
+            mensagem_erro: hasTargetLogin()
+              ? "Bilhete localizado pela API, mas a confirmacao automatica ainda depende da sessao do site"
+              : "Bilhete localizado pela API; login do site necessario para confirmar pre-bilhete",
+            status: "erro",
+            codigo_bilhete: codigo,
+            dados_bilhete: {
+              source: apiFallback.source,
+              ...apiFallback.data
+            }
+          };
+        }
+
         const screenshot = search.status === "erro"
           ? await this.captureScreenshot(page, codigo).catch(() => null)
           : null;
