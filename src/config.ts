@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 
 dotenv.config();
+dotenv.config({ path: ".env.local", override: true });
 
 function boolFromEnv(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || value === "") {
