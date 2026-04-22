@@ -5,11 +5,11 @@ import { chromium as playwrightChromium, type Browser, type BrowserContext, type
 import { config } from "../config.js";
 import type { TicketConfirmationResult, TicketSearchResult } from "../types.js";
 
-const SEARCH_BUTTON_TEXT = /pesquisar|buscar|consultar/i;
+const SEARCH_BUTTON_TEXT = /pesquisar|buscar|consultar|search|query/i;
 const CONFIRM_BUTTON_TEXT = /confirmar|confirmar bilhete|confirmar pre-bilhete|efetivar/i;
-const NOT_FOUND_TEXT = /nao encontrado|nao localizado|invalido|nenhum bilhete|codigo inexistente|bilhete nao/i;
-const FOUND_HINT_TEXT = /odd|odds|selec|cotacao|evento|palpite|mercado/i;
-const PAYMENT_FORM_TEXT = /usuario:\s*valor:\s*senha:/i;
+const NOT_FOUND_TEXT = /nao encontrado|nao localizado|invalido|nenhum bilhete|codigo inexistente|bilhete nao|not found|invalid|no ticket/i;
+const FOUND_HINT_TEXT = /odd|odds|selec|selection|cotacao|event|evento|palpite|market|mercado|amount|stake/i;
+const PAYMENT_FORM_TEXT = /(usuario|user):\s*(valor|amount):\s*(senha|password):/i;
 
 function normalizeText(text: string): string {
   return text
@@ -193,6 +193,9 @@ export class TicketAutomation {
     const searchButton = await this.firstVisibleLocator(page, [
       () => page.getByRole("button", { name: SEARCH_BUTTON_TEXT }),
       () => page.getByRole("link", { name: SEARCH_BUTTON_TEXT }),
+      () => page.locator('input[type="submit"][value*="Pesquisar" i], input[type="button"][value*="Pesquisar" i]'),
+      () => page.locator('input[type="submit"][value*="Search" i], input[type="button"][value*="Search" i]'),
+      () => page.locator('input[type="submit"][value*="Query" i], input[type="button"][value*="Query" i]'),
       () => page.locator("input[type='submit'], input[type='button'], button, a").filter({ hasText: SEARCH_BUTTON_TEXT })
     ]);
 
