@@ -1,8 +1,22 @@
 import type { TicketConfirmationResult, TicketStatus } from "../types.js";
 
-type MessageInput = Pick<TicketConfirmationResult, "confirmado" | "codigo_bilhete" | "codigo_confirmacao" | "mensagem_erro"> & {
+type MessageInput = Pick<
+  TicketConfirmationResult,
+  "confirmado" | "codigo_bilhete" | "codigo_confirmacao" | "mensagem_erro" | "dados_bilhete"
+> & {
   status: TicketStatus;
 };
+
+function getStatusDescription(result: MessageInput): string | null {
+  const ticket = result.dados_bilhete?.aposta;
+
+  if (!ticket || typeof ticket !== "object") {
+    return null;
+  }
+
+  const statusDescription = (ticket as Record<string, unknown>).status_desc;
+  return typeof statusDescription === "string" && statusDescription.trim() ? statusDescription.trim() : null;
+}
 
 export function buildCustomerMessage(result: MessageInput): string {
   if (result.confirmado) {
@@ -17,6 +31,17 @@ export function buildCustomerMessage(result: MessageInput): string {
 
     lines.push("Guarde este comprovante. Boa sorte! 🍀");
     return lines.join("\n");
+  }
+
+  if (result.status === "encontrado" && result.mensagem_erro?.includes("pendente de confirmacao")) {
+    const statusDescription = getStatusDescription(result);
+
+    return [
+      "✅ Bilhete localizado.",
+      `Código: ${result.codigo_bilhete}`,
+      statusDescription ? `Status: ${statusDescription}` : "Status: já confirmado",
+      "Este bilhete não está pendente de confirmação."
+    ].join("\n");
   }
 
   if (result.status === "nao_encontrado") {

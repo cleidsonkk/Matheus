@@ -110,7 +110,7 @@ export class TicketAutomation {
             screenshot_base64: null,
             screenshot_path: null,
             mensagem_erro: confirmation.error ?? "Confirmacao nao concluida",
-            status: "erro",
+            status: confirmation.error?.includes("pendente de confirmacao") ? "encontrado" : "erro",
             codigo_bilhete: codigo,
             dados_bilhete: apiTicketData
           };

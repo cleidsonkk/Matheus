@@ -110,6 +110,17 @@ function ticketStatus(data: SiteTicketData): number | null {
   return typeof status === "number" ? status : null;
 }
 
+function ticketStatusDescription(data: SiteTicketData): string {
+  const statusDescription = data.aposta?.status_desc;
+
+  if (typeof statusDescription === "string" && statusDescription.trim()) {
+    return statusDescription.trim();
+  }
+
+  const status = ticketStatus(data);
+  return status === null ? "desconhecido" : String(status);
+}
+
 function confirmationCode(data: unknown): string | null {
   if (!data || typeof data !== "object") {
     return null;
@@ -171,7 +182,7 @@ export async function confirmTicket(codigo: string, data: SiteTicketData, source
     return {
       confirmed: false,
       status: null,
-      error: "Bilhete localizado, mas nao esta com status de pre-bilhete",
+      error: `Bilhete localizado, mas nao esta pendente de confirmacao. Status: ${ticketStatusDescription(data)}`,
       data
     };
   }
