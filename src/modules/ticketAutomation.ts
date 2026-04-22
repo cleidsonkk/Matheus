@@ -5,9 +5,17 @@ import { config } from "../config.js";
 import type { TicketConfirmationResult, TicketSearchResult } from "../types.js";
 
 const SEARCH_BUTTON_TEXT = /pesquisar|buscar|consultar/i;
-const CONFIRM_BUTTON_TEXT = /confirmar|confirmar bilhete|confirmar pré-bilhete|confirmar pre-bilhete|efetivar/i;
-const NOT_FOUND_TEXT = /não encontrado|nao encontrado|não localizado|nao localizado|inválido|invalido|nenhum bilhete|código inexistente|codigo inexistente|bilhete não|bilhete nao/i;
-const FOUND_HINT_TEXT = /odd|odds|seleç|selec|cotação|cotacao|evento|aposta|valor|palpite|mercado/i;
+const CONFIRM_BUTTON_TEXT = /confirmar|confirmar bilhete|confirmar pre-bilhete|efetivar/i;
+const NOT_FOUND_TEXT = /nao encontrado|nao localizado|invalido|nenhum bilhete|codigo inexistente|bilhete nao/i;
+const FOUND_HINT_TEXT = /odd|odds|selec|cotacao|evento|palpite|mercado/i;
+const PAYMENT_FORM_TEXT = /usuario:\s*valor:\s*senha:/i;
+
+function normalizeText(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
 
 export class TicketAutomation {
   async validateAndConfirm(codigo: string): Promise<TicketConfirmationResult> {
@@ -38,13 +46,15 @@ export class TicketAutomation {
       }
 
       if (!config.confirmPreTicket) {
+        const screenshot = await this.captureScreenshot(page, codigo);
+
         return {
           confirmado: false,
           codigo_confirmacao: null,
-          screenshot_base64: null,
-          screenshot_path: null,
-          mensagem_erro: "Confirmação automática desativada",
-          status: "erro",
+          screenshot_base64: screenshot.base64,
+          screenshot_path: screenshot.path,
+          mensagem_erro: "Confirmacao automatica desativada",
+          status: "encontrado",
           codigo_bilhete: codigo,
           dados_bilhete: search.dados_bilhete
         };
@@ -64,7 +74,7 @@ export class TicketAutomation {
           codigo_confirmacao: null,
           screenshot_base64: screenshot.base64,
           screenshot_path: screenshot.path,
-          mensagem_erro: "Botão de confirmação não localizado",
+          mensagem_erro: "Botao de confirmacao nao localizado",
           status: "erro",
           codigo_bilhete: codigo,
           dados_bilhete: search.dados_bilhete
@@ -189,7 +199,9 @@ export class TicketAutomation {
   }
 
   private async detectStatus(page: Page, bodyText: string): Promise<TicketSearchResult["status"]> {
-    if (NOT_FOUND_TEXT.test(bodyText)) {
+    const normalizedBodyText = normalizeText(bodyText);
+
+    if (NOT_FOUND_TEXT.test(normalizedBodyText)) {
       return "nao_encontrado";
     }
 
@@ -205,7 +217,7 @@ export class TicketAutomation {
 
     const tableRows = await page.locator("table tr").count().catch(() => 0);
 
-    if (tableRows > 1 && FOUND_HINT_TEXT.test(bodyText)) {
+    if (tableRows > 1 && (FOUND_HINT_TEXT.test(normalizedBodyText) || PAYMENT_FORM_TEXT.test(normalizedBodyText))) {
       return "encontrado";
     }
 
@@ -262,13 +274,14 @@ export class TicketAutomation {
   }
 
   private extractConfirmationCode(text: string): string | null {
+    const normalizedText = normalizeText(text);
     const patterns = [
-      /(?:confirmação|confirmacao|protocolo|comprovante|número|numero)\D{0,30}([A-Z0-9][A-Z0-9._-]{3,})/i,
-      /(?:cód\.?|codigo|código)\D{0,30}([A-Z0-9][A-Z0-9._-]{3,})/i
+      /(?:confirmacao|protocolo|comprovante|numero)\D{0,30}([A-Z0-9][A-Z0-9._-]{3,})/i,
+      /(?:cod\.?|codigo)\D{0,30}([A-Z0-9][A-Z0-9._-]{3,})/i
     ];
 
     for (const pattern of patterns) {
-      const match = text.match(pattern);
+      const match = normalizedText.match(pattern);
       if (match?.[1]) {
         return match[1].toUpperCase();
       }
