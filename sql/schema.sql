@@ -40,6 +40,9 @@ CREATE INDEX IF NOT EXISTS validation_jobs_ticket_code_idx
 CREATE INDEX IF NOT EXISTS validation_jobs_status_idx
   ON validation_jobs (status);
 
+CREATE INDEX IF NOT EXISTS validation_jobs_created_at_idx
+  ON validation_jobs (created_at DESC);
+
 CREATE TABLE IF NOT EXISTS security_events (
   id uuid PRIMARY KEY,
   event_type text NOT NULL,

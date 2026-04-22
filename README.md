@@ -103,3 +103,13 @@ npm run site:capture-session
 ```
 
 Uma janela do navegador vai abrir. Faca login no site; o script salva `TARGET_AUTH_TOKEN`, `TARGET_USER_ID`, `TARGET_RTOKEN`, `TARGET_DTOKEN` e `TARGET_IP` em `.env.local`. O `TARGET_DTOKEN` pode ficar vazio, porque o proprio site trata esse campo como opcional. Depois replique as variaveis na Vercel.
+
+## Painel administrativo
+
+Configure `ADMIN_USERNAME` e `ADMIN_PASSWORD` nas variaveis de ambiente da Vercel. Depois acesse:
+
+```text
+https://SEU_DOMINIO/api/admin
+```
+
+O painel mostra resumo por cliente, contato, quantidade de bilhetes, valor apostado, premio possivel, status, mensagem enviada e os jogos detalhados de cada bilhete. Para exportar os mesmos dados em JSON, use `/api/admin?format=json`.

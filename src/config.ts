@@ -49,6 +49,10 @@ export const config = {
     botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
     webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET ?? ""
   },
+  admin: {
+    username: process.env.ADMIN_USERNAME ?? "",
+    password: process.env.ADMIN_PASSWORD ?? ""
+  },
   targetSite: {
     apiBaseUrl: process.env.TARGET_API_BASE_URL ?? "https://www.esportese.bet/futebolapi",
     authToken: process.env.TARGET_AUTH_TOKEN ?? "",
