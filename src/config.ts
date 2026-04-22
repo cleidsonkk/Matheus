@@ -44,5 +44,9 @@ export const config = {
     clientToken: process.env.WHATSAPP_CLIENT_TOKEN ?? "",
     metaPhoneNumberId: process.env.META_PHONE_NUMBER_ID ?? "",
     metaApiVersion: process.env.META_API_VERSION ?? "v21.0"
+  },
+  telegram: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN ?? "",
+    webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET ?? ""
   }
 } as const;

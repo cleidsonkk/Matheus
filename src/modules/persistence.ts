@@ -22,7 +22,8 @@ export function hasDatabase(): boolean {
 }
 
 export async function createValidationJob(input: {
-  numero: string;
+  channel: ValidationJob["channel"];
+  recipientId: string;
   mensagem: string;
   codigo: string;
   externalMessageId: string | null;
@@ -32,9 +33,10 @@ export async function createValidationJob(input: {
 
   if (input.externalMessageId) {
     const existing = await sql`
-      SELECT id, external_message_id, phone, original_message, ticket_code, raw_payload, created_at
+      SELECT id, external_message_id, channel, phone, original_message, ticket_code, raw_payload, created_at
       FROM validation_jobs
-      WHERE external_message_id = ${input.externalMessageId}
+      WHERE channel = ${input.channel}
+        AND external_message_id = ${input.externalMessageId}
       LIMIT 1
     `;
 
@@ -45,6 +47,8 @@ export async function createValidationJob(input: {
         job: {
           id: row.id,
           externalMessageId: row.external_message_id,
+          channel: row.channel,
+          recipientId: row.phone,
           numero: row.phone,
           mensagem: row.original_message,
           codigo: row.ticket_code,
@@ -60,6 +64,7 @@ export async function createValidationJob(input: {
     INSERT INTO validation_jobs (
       id,
       external_message_id,
+      channel,
       phone,
       original_message,
       ticket_code,
@@ -69,7 +74,8 @@ export async function createValidationJob(input: {
     VALUES (
       ${id},
       ${input.externalMessageId},
-      ${input.numero},
+      ${input.channel},
+      ${input.recipientId},
       ${input.mensagem},
       ${input.codigo},
       'queued',
@@ -82,7 +88,9 @@ export async function createValidationJob(input: {
     job: {
       id,
       externalMessageId: input.externalMessageId,
-      numero: input.numero,
+      channel: input.channel,
+      recipientId: input.recipientId,
+      numero: input.recipientId,
       mensagem: input.mensagem,
       codigo: input.codigo,
       raw: input.raw,
@@ -92,7 +100,8 @@ export async function createValidationJob(input: {
 }
 
 export async function recordExtractionFailure(input: {
-  numero: string;
+  channel: ValidationJob["channel"];
+  recipientId: string;
   mensagem: string;
   externalMessageId: string | null;
   raw: unknown;
@@ -106,6 +115,7 @@ export async function recordExtractionFailure(input: {
     INSERT INTO validation_jobs (
       id,
       external_message_id,
+      channel,
       phone,
       original_message,
       ticket_code,
@@ -116,14 +126,15 @@ export async function recordExtractionFailure(input: {
     VALUES (
       ${randomUUID()},
       ${input.externalMessageId},
-      ${input.numero},
+      ${input.channel},
+      ${input.recipientId},
       ${input.mensagem},
       ${null},
       'codigo_nao_encontrado',
       ${JSON.stringify(input.raw)}::jsonb,
       now()
     )
-    ON CONFLICT (external_message_id) WHERE external_message_id IS NOT NULL
+    ON CONFLICT (channel, external_message_id) WHERE external_message_id IS NOT NULL
     DO NOTHING
   `;
 }

@@ -20,16 +20,22 @@ export default async function handler(req: any, res: any): Promise<void> {
     return;
   }
 
+  const channel = req.body?.channel === "telegram" ? "telegram" : "whatsapp";
   const numero = typeof req.body?.numero === "string" ? req.body.numero.replace(/\D/g, "") : "";
+  const chatId = typeof req.body?.chatId === "string" || typeof req.body?.chatId === "number"
+    ? String(req.body.chatId)
+    : "";
+  const recipientId = channel === "telegram" ? chatId : numero;
   const mensagem = typeof req.body?.mensagem === "string" ? req.body.mensagem : "";
 
-  if (!numero || !mensagem) {
-    res.status(400).json({ ok: false, error: "numero e mensagem são obrigatórios" });
+  if (!recipientId || !mensagem) {
+    res.status(400).json({ ok: false, error: "destinatario e mensagem sao obrigatorios" });
     return;
   }
 
   const result = await prepareInboundForProcessing({
-    numero,
+    channel,
+    recipientId,
     mensagem,
     externalMessageId: typeof req.body?.messageId === "string" ? req.body.messageId : null,
     raw: req.body

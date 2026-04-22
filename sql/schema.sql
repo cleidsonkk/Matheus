@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS validation_jobs (
   id uuid PRIMARY KEY,
   external_message_id text,
+  channel text NOT NULL DEFAULT 'whatsapp',
   phone text NOT NULL,
   original_message text NOT NULL,
   ticket_code text,
@@ -21,8 +22,13 @@ CREATE TABLE IF NOT EXISTS validation_jobs (
   processed_at timestamptz
 );
 
+ALTER TABLE validation_jobs
+  ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'whatsapp';
+
+DROP INDEX IF EXISTS validation_jobs_external_message_id_idx;
+
 CREATE UNIQUE INDEX IF NOT EXISTS validation_jobs_external_message_id_idx
-  ON validation_jobs (external_message_id)
+  ON validation_jobs (channel, external_message_id)
   WHERE external_message_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS validation_jobs_phone_created_at_idx

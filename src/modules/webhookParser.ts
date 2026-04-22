@@ -1,4 +1,4 @@
-import type { InboundWhatsAppMessage } from "../types.js";
+import type { InboundMessage } from "../types.js";
 
 function pickString(...values: unknown[]): string {
   for (const value of values) {
@@ -15,7 +15,7 @@ function normalizePhone(raw: string): string {
   return remoteJid.replace(/\D/g, "");
 }
 
-export function parseInboundWhatsAppMessage(body: unknown): InboundWhatsAppMessage | null {
+export function parseInboundWhatsAppMessage(body: unknown): InboundMessage | null {
   if (!body || typeof body !== "object") {
     return null;
   }
@@ -69,7 +69,8 @@ export function parseInboundWhatsAppMessage(body: unknown): InboundWhatsAppMessa
   }
 
   return {
-    numero,
+    channel: "whatsapp",
+    recipientId: numero,
     mensagem: text,
     externalMessageId: externalMessageId || null,
     raw: body

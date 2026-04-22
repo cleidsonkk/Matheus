@@ -31,9 +31,19 @@ export type InboundWhatsAppMessage = {
   raw: unknown;
 };
 
+export type InboundMessage = {
+  channel: "whatsapp" | "telegram";
+  recipientId: string;
+  mensagem: string;
+  externalMessageId: string | null;
+  raw: unknown;
+};
+
 export type ValidationJob = {
   id: string;
   externalMessageId: string | null;
+  channel: "whatsapp" | "telegram";
+  recipientId: string;
   numero: string;
   mensagem: string;
   codigo: string;

@@ -9,6 +9,7 @@
     "build": "tsc",
     "check": "tsc --noEmit -p tsconfig.check.json",
     "db:migrate": "tsx scripts/migrate.ts",
+    "telegram:set-webhook": "tsx scripts/set-telegram-webhook.ts",
     "playwright:install": "playwright install chromium"
   },
   "dependencies": {
