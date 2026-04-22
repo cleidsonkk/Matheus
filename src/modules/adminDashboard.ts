@@ -126,7 +126,16 @@ function numberFrom(value: unknown): number {
   }
 
   if (typeof value === "string") {
-    const normalized = value.replace(/\./g, "").replace(",", ".");
+    const trimmed = value.trim();
+
+    if (!trimmed) {
+      return 0;
+    }
+
+    const cleaned = trimmed.replace(/[^\d,.-]/g, "");
+    const normalized = cleaned.includes(",")
+      ? cleaned.replace(/\./g, "").replace(",", ".")
+      : cleaned;
     const parsed = Number.parseFloat(normalized);
     return Number.isFinite(parsed) ? parsed : 0;
   }
