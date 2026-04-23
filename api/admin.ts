@@ -278,15 +278,17 @@ function renderBreakdown(title: string, items: AdminBreakdown[], formatter: (lab
 
 function renderCustomerRows(customers: AdminCustomerSummary[]): string {
   if (customers.length === 0) {
-    return `<tr><td colspan="17" class="empty">Nenhum cliente encontrado.</td></tr>`;
+    return `<tr><td colspan="16" class="empty">Nenhum cliente encontrado.</td></tr>`;
   }
 
   return customers.map((customer) => `
     <tr>
       <td data-label="Cliente"><strong>${escapeHtml(customer.customerName)}</strong></td>
       <td data-label="ID do cliente"><code>${escapeHtml(customer.customerId)}</code></td>
-      <td data-label="ID Telegram/Contato">${escapeHtml(customer.contact)}</td>
-      <td data-label="Celular">${escapeHtml(customer.registeredPhone ?? "Não informado")}</td>
+      <td data-label="Contato">
+        ${escapeHtml(customer.contact)}
+        <small>Celular: ${escapeHtml(customer.registeredPhone ?? "Não informado")}</small>
+      </td>
       <td data-label="Canal">${escapeHtml(channelLabel(customer.channel))}</td>
       <td data-label="Bilhetes" class="num">${formatInteger(customer.tickets)}</td>
       <td data-label="Confirmados" class="num">${formatInteger(customer.confirmed)}</td>
@@ -655,7 +657,7 @@ function renderHtml(data: AdminDashboardData): string {
       box-shadow: var(--shadow);
       margin-bottom: 20px;
     }
-    table { width: 100%; min-width: 1480px; border-collapse: collapse; }
+    table { width: 100%; min-width: 1380px; border-collapse: collapse; }
     th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
     th {
       position: sticky;
@@ -980,8 +982,7 @@ function renderHtml(data: AdminDashboardData): string {
             <tr>
               <th>Cliente</th>
               <th>ID do cliente</th>
-              <th>ID Telegram/Contato</th>
-              <th>Celular</th>
+              <th>Contato</th>
               <th>Canal</th>
               <th>Bilhetes</th>
               <th>Confirmados</th>
