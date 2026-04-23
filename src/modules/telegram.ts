@@ -7,6 +7,8 @@ type TelegramResponse<T> = {
   description?: string;
 };
 
+type TelegramReplyMarkup = Record<string, unknown>;
+
 function requireBotToken(): string {
   if (!config.telegram.botToken) {
     throw new Error("TELEGRAM_BOT_TOKEN nao configurado");
@@ -33,7 +35,7 @@ async function callTelegram<T>(method: string, body: Record<string, unknown>): P
 }
 
 export class TelegramClient {
-  async sendText(chatId: string, text: string): Promise<void> {
+  async sendText(chatId: string, text: string, options: { replyMarkup?: TelegramReplyMarkup } = {}): Promise<void> {
     if (!config.telegram.botToken) {
       log("info", "Telegram sem token: texto nao enviado", { chatId, text });
       return;
@@ -41,7 +43,19 @@ export class TelegramClient {
 
     await callTelegram("sendMessage", {
       chat_id: chatId,
-      text
+      text,
+      ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {})
+    });
+  }
+
+  async requestContact(chatId: string, text: string): Promise<void> {
+    await this.sendText(chatId, text, {
+      replyMarkup: {
+        keyboard: [[{ text: "Compartilhar meu telefone", request_contact: true }]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+        input_field_placeholder: "Envie o codigo do bilhete"
+      }
     });
   }
 

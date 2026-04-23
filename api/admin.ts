@@ -278,14 +278,15 @@ function renderBreakdown(title: string, items: AdminBreakdown[], formatter: (lab
 
 function renderCustomerRows(customers: AdminCustomerSummary[]): string {
   if (customers.length === 0) {
-    return `<tr><td colspan="16" class="empty">Nenhum cliente encontrado.</td></tr>`;
+    return `<tr><td colspan="17" class="empty">Nenhum cliente encontrado.</td></tr>`;
   }
 
   return customers.map((customer) => `
     <tr>
       <td data-label="Cliente"><strong>${escapeHtml(customer.customerName)}</strong></td>
       <td data-label="ID do cliente"><code>${escapeHtml(customer.customerId)}</code></td>
-      <td data-label="Contato">${escapeHtml(customer.contact)}</td>
+      <td data-label="ID Telegram/Contato">${escapeHtml(customer.contact)}</td>
+      <td data-label="Celular">${escapeHtml(customer.registeredPhone ?? "Não informado")}</td>
       <td data-label="Canal">${escapeHtml(channelLabel(customer.channel))}</td>
       <td data-label="Bilhetes" class="num">${formatInteger(customer.tickets)}</td>
       <td data-label="Confirmados" class="num">${formatInteger(customer.confirmed)}</td>
@@ -374,6 +375,7 @@ function renderTicketCard(ticket: AdminTicket): string {
           <p>
             ${escapeHtml(channelLabel(ticket.channel))} · ${escapeHtml(ticket.contact)}
             ${ticket.username ? ` · @${escapeHtml(ticket.username)}` : ""}
+            ${ticket.registeredPhone ? ` · Celular: ${escapeHtml(ticket.registeredPhone)}` : ""}
           </p>
           <small>ID do cliente: ${escapeHtml(ticket.customerId)}</small>
         </div>
@@ -383,6 +385,7 @@ function renderTicketCard(ticket: AdminTicket): string {
       <dl class="ticket-grid">
         <div><dt>Recebido</dt><dd>${formatDate(ticket.createdAt)}</dd></div>
         <div><dt>Processado</dt><dd>${formatDate(ticket.processedAt)}</dd></div>
+        <div><dt>Celular cadastrado</dt><dd>${escapeHtml(ticket.registeredPhone ?? "-")}</dd></div>
         <div><dt>Cliente no site</dt><dd>${escapeHtml(ticket.siteCustomerName ?? "-")}</dd></div>
         <div><dt>Status no site</dt><dd>${escapeHtml(ticket.siteStatus ?? "-")}</dd></div>
         <div><dt>Valor</dt><dd>${formatMoney(ticket.amount)}</dd></div>
@@ -421,7 +424,7 @@ function renderFilters(data: AdminDashboardData): string {
     <form method="get" action="/api/admin" class="filters">
       <label>
         <span>Busca</span>
-        <input name="q" value="${escapeHtml(data.filters.q)}" placeholder="Cliente, contato ou bilhete" autocomplete="off">
+        <input name="q" value="${escapeHtml(data.filters.q)}" placeholder="Cliente, celular, contato ou bilhete" autocomplete="off">
       </label>
       <label>
         <span>Status</span>
@@ -652,7 +655,7 @@ function renderHtml(data: AdminDashboardData): string {
       box-shadow: var(--shadow);
       margin-bottom: 20px;
     }
-    table { width: 100%; min-width: 1380px; border-collapse: collapse; }
+    table { width: 100%; min-width: 1480px; border-collapse: collapse; }
     th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
     th {
       position: sticky;
@@ -977,7 +980,8 @@ function renderHtml(data: AdminDashboardData): string {
             <tr>
               <th>Cliente</th>
               <th>ID do cliente</th>
-              <th>Contato</th>
+              <th>ID Telegram/Contato</th>
+              <th>Celular</th>
               <th>Canal</th>
               <th>Bilhetes</th>
               <th>Confirmados</th>

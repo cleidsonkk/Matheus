@@ -28,17 +28,25 @@ export function parseInboundTelegramMessage(body: unknown): InboundMessage | nul
   }
 
   const chatId = message.chat?.id;
-  const text = pickTelegramText(message);
+  const contact = message.contact;
+  const text = pickTelegramText(message) || (contact ? "/contact" : "");
 
   if ((typeof chatId !== "number" && typeof chatId !== "string") || !text) {
     return null;
   }
+
+  const contactPhone = typeof contact?.phone_number === "string" ? contact.phone_number : null;
+  const contactFirstName = typeof contact?.first_name === "string" ? contact.first_name : null;
+  const contactLastName = typeof contact?.last_name === "string" ? contact.last_name : null;
 
   return {
     channel: "telegram",
     recipientId: String(chatId),
     mensagem: text,
     externalMessageId: update.update_id !== undefined ? `telegram:${update.update_id}` : null,
-    raw: body
+    raw: body,
+    contactPhone,
+    contactFirstName,
+    contactLastName
   };
 }

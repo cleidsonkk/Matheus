@@ -58,6 +58,9 @@ export type InboundMessage = {
   mensagem: string;
   externalMessageId: string | null;
   raw: unknown;
+  contactPhone?: string | null;
+  contactFirstName?: string | null;
+  contactLastName?: string | null;
 };
 
 export type ValidationJob = {

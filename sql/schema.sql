@@ -89,6 +89,25 @@ CREATE TABLE IF NOT EXISTS customer_credit_reservations (
 CREATE INDEX IF NOT EXISTS customer_credit_reservations_customer_status_idx
   ON customer_credit_reservations (channel, phone, status, expires_at);
 
+CREATE TABLE IF NOT EXISTS customer_profiles (
+  channel text NOT NULL,
+  recipient_id text NOT NULL,
+  display_name text,
+  username text,
+  first_name text,
+  last_name text,
+  phone_number text,
+  raw_contact jsonb,
+  contact_shared_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (channel, recipient_id)
+);
+
+CREATE INDEX IF NOT EXISTS customer_profiles_phone_number_idx
+  ON customer_profiles (phone_number)
+  WHERE phone_number IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS security_events (
   id uuid PRIMARY KEY,
   event_type text NOT NULL,

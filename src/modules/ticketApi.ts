@@ -140,7 +140,9 @@ function confirmationItems(data: SiteTicketData): Array<Record<string, unknown>>
       jog_odd_id: item?.jog_odd_id,
       esporte_id: item?.esporte_id
     }))
-    .filter((item) => item.camp_jog_id && item.jog_odd_id && item.esporte_id);
+    .filter((item) => item.camp_jog_id !== null && item.camp_jog_id !== undefined && item.camp_jog_id !== ""
+      && item.jog_odd_id !== null && item.jog_odd_id !== undefined && item.jog_odd_id !== ""
+      && item.esporte_id !== null && item.esporte_id !== undefined && item.esporte_id !== "");
 }
 
 async function postConfirmation(path: string, codigo: string, body: Record<string, unknown>): Promise<{ status: number; data: unknown; text: string }> {

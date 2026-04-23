@@ -102,6 +102,22 @@ export function buildTelegramWelcomeMessage(): string {
   return [
     "Olá! Envie o código do bilhete para validação.",
     "Pode mandar com espaços ou tudo junto.",
+    "Para aparecer com celular no painel, toque em Compartilhar meu telefone.",
     "Exemplo: ABCD 1234 WXYZ"
+  ].join("\n");
+}
+
+export function buildTelegramContactRegisteredMessage(phoneNumber: string): string {
+  return [
+    "✅ Telefone cadastrado com sucesso.",
+    `Celular: ${phoneNumber}`,
+    "Agora envie 1 código de bilhete por vez."
+  ].join("\n");
+}
+
+export function buildTelegramContactRejectedMessage(): string {
+  return [
+    "⚠️ Para sua segurança, envie o seu próprio contato pelo botão Compartilhar meu telefone.",
+    "Depois envie 1 código de bilhete por vez."
   ].join("\n");
 }

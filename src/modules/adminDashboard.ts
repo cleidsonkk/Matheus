@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { config } from "../config.js";
 import { extractTicketFinancials, loadCustomerCreditSummaries, type CustomerCreditSummary } from "./credit.js";
+import { formatPhoneNumber } from "./customerProfile.js";
 import { parseDecimal } from "./money.js";
 
 type RawRow = Record<string, any>;
@@ -34,6 +35,7 @@ export type AdminTicket = {
   channel: string;
   customerId: string;
   contact: string;
+  registeredPhone: string | null;
   customerName: string;
   username: string | null;
   siteCustomerName: string | null;
@@ -61,6 +63,7 @@ export type AdminCustomerSummary = {
   customerName: string;
   customerId: string;
   contact: string;
+  registeredPhone: string | null;
   channel: string;
   tickets: number;
   confirmed: number;
@@ -197,6 +200,7 @@ function normalizeTicket(row: RawRow): AdminTicket {
   const aposta = ticketPayload.aposta ?? {};
   const siteCustomerName = nullableString(aposta.cliente);
   const customer = customerFromRaw(row.raw_payload ?? {}, siteCustomerName);
+  const registeredPhone = formatPhoneNumber(nullableString(row.profile_phone_number));
   const financials = extractTicketFinancials(ticketPayload);
   const amount = numberFrom(row.ticket_amount) || financials.amount;
   const prize = numberFrom(row.ticket_prize) || financials.prize;
@@ -211,8 +215,9 @@ function normalizeTicket(row: RawRow): AdminTicket {
     channel: row.channel,
     customerId: `${row.channel}:${row.phone}`,
     contact: row.phone,
-    customerName: customer.name,
-    username: customer.username,
+    registeredPhone,
+    customerName: nullableString(row.profile_display_name) ?? customer.name,
+    username: nullableString(row.profile_username) ?? customer.username,
     siteCustomerName,
     ticketCode: nullableString(row.ticket_code),
     siteTicketCode: nullableString(aposta.codigo),
@@ -244,6 +249,7 @@ function groupCustomers(tickets: AdminTicket[]): AdminCustomerSummary[] {
       customerName: ticket.customerName,
       customerId: key,
       contact: ticket.contact,
+      registeredPhone: ticket.registeredPhone,
       channel: ticket.channel,
       tickets: 0,
       confirmed: 0,
@@ -276,6 +282,7 @@ function groupCustomers(tickets: AdminTicket[]): AdminCustomerSummary[] {
     if (new Date(ticket.createdAt).getTime() > new Date(current.lastActivity).getTime()) {
       current.lastActivity = ticket.createdAt;
       current.customerName = ticket.customerName;
+      current.registeredPhone = ticket.registeredPhone ?? current.registeredPhone;
       current.lastTicketCode = ticket.ticketCode;
     }
 
@@ -321,70 +328,78 @@ export async function loadAdminDashboardData(input: {
   const filters: string[] = [];
   const params: unknown[] = [];
 
-  filters.push("ticket_code IS NOT NULL");
+  filters.push("validation_jobs.ticket_code IS NOT NULL");
 
   if (status && status !== "todos") {
     params.push(status);
-    filters.push(`status = $${params.length}`);
+    filters.push(`validation_jobs.status = $${params.length}`);
   }
 
   if (channel && channel !== "todos") {
     params.push(channel);
-    filters.push(`channel = $${params.length}`);
+    filters.push(`validation_jobs.channel = $${params.length}`);
   }
 
   if (from) {
     params.push(from);
-    filters.push(`created_at >= $${params.length}::date`);
+    filters.push(`validation_jobs.created_at >= $${params.length}::date`);
   }
 
   if (to) {
     params.push(to);
-    filters.push(`created_at < ($${params.length}::date + interval '1 day')`);
+    filters.push(`validation_jobs.created_at < ($${params.length}::date + interval '1 day')`);
   }
 
   if (q) {
     params.push(`%${q.toLowerCase()}%`);
     const index = params.length;
     filters.push(`(
-      lower(coalesce(phone, '')) like $${index}
-      or lower(coalesce(ticket_code, '')) like $${index}
-      or lower(coalesce(result_payload->'dados_bilhete'->'aposta'->>'cliente', '')) like $${index}
-      or lower(coalesce(result_payload->'dados_bilhete'->'aposta'->>'codigo', '')) like $${index}
-      or lower(coalesce(raw_payload->'message'->'from'->>'first_name', '')) like $${index}
-      or lower(coalesce(raw_payload->'message'->'from'->>'last_name', '')) like $${index}
-      or lower(coalesce(raw_payload->'message'->'from'->>'username', '')) like $${index}
+      lower(coalesce(validation_jobs.phone, '')) like $${index}
+      or lower(coalesce(p.phone_number, '')) like $${index}
+      or lower(coalesce(p.display_name, '')) like $${index}
+      or lower(coalesce(validation_jobs.ticket_code, '')) like $${index}
+      or lower(coalesce(validation_jobs.result_payload->'dados_bilhete'->'aposta'->>'cliente', '')) like $${index}
+      or lower(coalesce(validation_jobs.result_payload->'dados_bilhete'->'aposta'->>'codigo', '')) like $${index}
+      or lower(coalesce(validation_jobs.raw_payload->'message'->'from'->>'first_name', '')) like $${index}
+      or lower(coalesce(validation_jobs.raw_payload->'message'->'from'->>'last_name', '')) like $${index}
+      or lower(coalesce(validation_jobs.raw_payload->'message'->'from'->>'username', '')) like $${index}
     )`);
   }
 
   params.push(limit);
   const query = `
     SELECT
-      id,
-      external_message_id,
-      channel,
-      phone,
-      original_message,
-      ticket_code,
-      status,
-      confirmed,
-      confirmation_code,
-      customer_message,
-      error_message,
-      text_sent,
-      image_sent,
-      delivery_error,
-      raw_payload,
-      result_payload,
-      ticket_amount,
-      ticket_prize,
-      ticket_game_count,
-      created_at,
-      updated_at,
-      processed_at
+      validation_jobs.id,
+      validation_jobs.external_message_id,
+      validation_jobs.channel,
+      validation_jobs.phone,
+      validation_jobs.original_message,
+      validation_jobs.ticket_code,
+      validation_jobs.status,
+      validation_jobs.confirmed,
+      validation_jobs.confirmation_code,
+      validation_jobs.customer_message,
+      validation_jobs.error_message,
+      validation_jobs.text_sent,
+      validation_jobs.image_sent,
+      validation_jobs.delivery_error,
+      validation_jobs.raw_payload,
+      validation_jobs.result_payload,
+      validation_jobs.ticket_amount,
+      validation_jobs.ticket_prize,
+      validation_jobs.ticket_game_count,
+      validation_jobs.created_at,
+      validation_jobs.updated_at,
+      validation_jobs.processed_at,
+      p.display_name AS profile_display_name,
+      p.username AS profile_username,
+      p.phone_number AS profile_phone_number
     FROM validation_jobs
+    LEFT JOIN customer_profiles p
+      ON p.channel = validation_jobs.channel
+     AND p.recipient_id = validation_jobs.phone
     WHERE ${filters.join(" AND ")}
-    ORDER BY created_at DESC
+    ORDER BY validation_jobs.created_at DESC
     LIMIT $${params.length}
   `;
 

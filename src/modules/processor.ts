@@ -1,5 +1,6 @@
 import { log } from "../logger.js";
 import type { ValidationJob } from "../types.js";
+import { notifyAdminSafely, notifyAdminValidationResult } from "./adminNotifier.js";
 import { appendAuditLog } from "./auditLog.js";
 import {
   commitCustomerCreditReservation,
@@ -71,11 +72,26 @@ export async function processValidationJob(job: ValidationJob): Promise<void> {
       deliveryError: null
     });
   } catch (error) {
+    const deliveryError = error instanceof Error ? error.message : String(error);
+
     await markDeliveryStatus({
       jobId: job.id,
       textSent,
       imageSent,
-      deliveryError: error instanceof Error ? error.message : String(error)
+      deliveryError
+    });
+
+    notifyAdminSafely(notifyAdminValidationResult(job, {
+      ...result,
+      mensagem_erro: result.mensagem_erro
+        ? `${result.mensagem_erro} | Falha ao enviar resposta ao cliente: ${deliveryError}`
+        : `Falha ao enviar resposta ao cliente: ${deliveryError}`
+    }), {
+      jobId: job.id,
+      channel: job.channel,
+      recipientId: job.recipientId,
+      codigo: job.codigo,
+      deliveryError
     });
 
     throw error;
@@ -97,6 +113,13 @@ export async function processValidationJob(job: ValidationJob): Promise<void> {
       jobId: job.id,
       error: error instanceof Error ? error.message : String(error)
     });
+  });
+
+  notifyAdminSafely(notifyAdminValidationResult(job, result), {
+    jobId: job.id,
+    channel: job.channel,
+    recipientId: job.recipientId,
+    codigo: job.codigo
   });
 
   log("info", "Validação finalizada", {
