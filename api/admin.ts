@@ -319,11 +319,12 @@ function renderCustomerRows(customers: AdminCustomerSummary[]): string {
             <input type="hidden" name="channel" value="${escapeHtml(customer.channel)}">
             <input type="hidden" name="phone" value="${escapeHtml(customer.contact)}">
             <input type="hidden" name="customerName" value="${escapeHtml(customer.customerName)}">
-            <input name="paymentAmount" inputmode="decimal" placeholder="Pagamento">
-            <button type="submit">Baixar</button>
+            <input name="paymentAmount" inputmode="decimal" placeholder="Valor pago">
+            <button type="submit">Registrar</button>
           </form>
         </div>
         <small>Pago: ${formatMoney(customer.credit.payments)} · Reservado: ${formatMoney(customer.credit.reserved)}</small>
+        <small>Pagamento registrado libera limite automaticamente.</small>
       </td>
     </tr>
   `).join("");

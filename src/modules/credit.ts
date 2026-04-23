@@ -79,6 +79,28 @@ export function applyConfirmedTicketToCredit(credit: CustomerCreditSummary): Cus
   };
 }
 
+export function applyPaymentToCredit(credit: CustomerCreditSummary, paymentAmount: number): CustomerCreditSummary {
+  const payment = money(paymentAmount);
+
+  if (payment <= 0) {
+    return credit;
+  }
+
+  const payments = money(credit.payments + payment);
+  const outstanding = money(Math.max(0, credit.outstanding - payment));
+  const available = credit.limit === null ? null : money(Math.max(0, credit.limit - outstanding));
+
+  return {
+    ...credit,
+    payments,
+    outstanding,
+    available,
+    requiredPayment: credit.ticketAmount === undefined
+      ? undefined
+      : requiredPaymentForTicket({ limit: credit.limit, outstanding, ticketAmount: credit.ticketAmount })
+  };
+}
+
 function rowToCreditSummary(row: CreditRow | undefined, ticketAmount?: number): CustomerCreditSummary {
   const limited = true;
   const limit = nullableMoney(row?.credit_limit) ?? defaultCreditLimit();

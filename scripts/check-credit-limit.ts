@@ -1,5 +1,5 @@
 import type { CreditSnapshot } from "../src/types.js";
-import { applyConfirmedTicketToCredit, requiredPaymentForTicket } from "../src/modules/credit.js";
+import { applyConfirmedTicketToCredit, applyPaymentToCredit, requiredPaymentForTicket } from "../src/modules/credit.js";
 import { buildCustomerMessage } from "../src/modules/messageBuilder.js";
 
 function assertEqual(actual: unknown, expected: unknown, message: string): void {
@@ -66,5 +66,36 @@ const overLimitCredit: CreditSnapshot = {
 };
 
 assertEqual(requiredPaymentForTicket(overLimitCredit), 30, "required payment should cover overdue amount plus new ticket");
+
+const exhaustedCredit: CreditSnapshot = {
+  limited: true,
+  limit: 100,
+  used: 100,
+  payments: 0,
+  reserved: 0,
+  outstanding: 100,
+  available: 0
+};
+
+const partialPayment = applyPaymentToCredit(exhaustedCredit, 50);
+assertEqual(partialPayment.outstanding, 50, "partial payment should reduce outstanding");
+assertEqual(partialPayment.payments, 50, "partial payment should be recorded in total paid");
+assertEqual(partialPayment.available, 50, "partial payment should release only the amount paid");
+
+const exactLimitCredit: CreditSnapshot = {
+  limited: true,
+  limit: 150,
+  used: 140,
+  payments: 0,
+  reserved: 0,
+  outstanding: 140,
+  available: 10,
+  ticketAmount: 10
+};
+
+const afterExactLimit = applyConfirmedTicketToCredit(exactLimitCredit);
+assertEqual(afterExactLimit.outstanding, 150, "ticket that reaches the limit should be counted");
+assertEqual(afterExactLimit.available, 0, "ticket that reaches the limit should leave zero available");
+assertEqual(requiredPaymentForTicket({ ...afterExactLimit, ticketAmount: 1 }), 1, "next ticket after limit is exhausted should require payment");
 
 console.log("Credit limit checks passed.");
