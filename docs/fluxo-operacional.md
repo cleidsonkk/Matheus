@@ -71,7 +71,28 @@ O bot pede pagamento mínimo de `R$ 10,00`.
 4. Administrador recebe notificação real via Telegram.
 5. Dashboard atualiza com dados do cliente, bilhete, jogos, valor, prêmio, status e financeiro.
 
-## 8. Painel administrativo
+## 8. Notificações do administrador
+
+Para receber alertas reais no Telegram, o administrador deve abrir o bot e enviar:
+
+```text
+/admin sua-senha-do-painel
+```
+
+Depois disso o sistema grava o Telegram do administrador no banco e passa a notificar:
+
+- bilhete confirmado;
+- bilhete não localizado;
+- erro de validação;
+- limite excedido;
+- cliente com limite quase atingido;
+- código inválido;
+- mais de um código na mesma mensagem;
+- celular cadastrado ou recusado.
+
+O painel também tem a ação `Enviar teste` para confirmar que o Telegram administrativo está recebendo de verdade.
+
+## 9. Painel administrativo
 
 O painel deve mostrar:
 
@@ -97,7 +118,7 @@ O administrador tambem pode apagar dados de teste diretamente pelo painel:
 
 A limpeza remove bilhetes, clientes, limites e pagamentos cadastrados. Ela nao altera a estrutura do banco, o login do administrador nem os logs de seguranca.
 
-## 9. Checklist antes de uso real
+## 10. Checklist antes de uso real
 
 Rodar:
 

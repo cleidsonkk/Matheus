@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { config } from "../src/config.js";
 import { isAdminRequestAuthorized, verifyAdminCredentials } from "../src/modules/adminAuth.js";
 import { clearOperationalData, deleteValidationJobById } from "../src/modules/adminCleanup.js";
+import { countAdminTelegramTargets } from "../src/modules/adminNotificationTargets.js";
+import { sendAdminTestNotification } from "../src/modules/adminNotifier.js";
 import {
   type AdminBreakdown,
   type AdminCustomerSummary,
@@ -67,9 +69,9 @@ async function readForm(req: any): Promise<URLSearchParams> {
   return new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
 }
 
-function redirectToAdmin(res: any): void {
+function redirectToAdmin(res: any, notice: string | null = null): void {
   res.statusCode = 303;
-  res.setHeader("Location", "/api/admin");
+  res.setHeader("Location", notice ? `/api/admin?notice=${encodeURIComponent(notice)}` : "/api/admin");
   res.end();
 }
 
@@ -139,6 +141,21 @@ async function handleAdminAction(req: any, res: any): Promise<void> {
     const deleted = await clearOperationalData();
     await recordAdminCleanupEvent(req, "admin_clear_operational_data", deleted);
     redirectToAdmin(res);
+    return;
+  }
+
+  if (action === "send_admin_notification_test") {
+    if (!requireAdminPassword(form, res)) {
+      return;
+    }
+
+    const result = await sendAdminTestNotification();
+    redirectToAdmin(
+      res,
+      result.targets > 0
+        ? `Teste enviado para ${result.targets} Telegram(s) administrativo(s).`
+        : "Nenhum Telegram administrativo cadastrado. Envie /admin sua-senha no bot."
+    );
     return;
   }
 
@@ -557,6 +574,37 @@ function renderFilters(data: AdminDashboardData): string {
   `;
 }
 
+function renderNotice(notice: string): string {
+  if (!notice) {
+    return "";
+  }
+
+  return `<div class="notice" role="status">${escapeHtml(notice)}</div>`;
+}
+
+function renderAdminNotificationsPanel(targetCount: number): string {
+  return `
+    <section class="panel notify-panel" aria-label="Notificacoes administrativas">
+      <div>
+        <span class="eyebrow">Notificacoes reais</span>
+        <h2>Telegram do administrador</h2>
+        <p class="muted">
+          Para ativar neste Telegram, abra o bot do administrador e envie <code>/admin sua-senha-do-painel</code>. Depois use o teste abaixo.
+        </p>
+        <small>${formatInteger(targetCount)} Telegram(s) administrativo(s) cadastrado(s).</small>
+      </div>
+      <form method="post" action="/api/admin" class="notify-form">
+        <input type="hidden" name="action" value="send_admin_notification_test">
+        <label>
+          <span>Senha do administrador</span>
+          <input type="password" name="adminPassword" autocomplete="current-password" placeholder="Senha para testar" required>
+        </label>
+        <button type="submit">Enviar teste</button>
+      </form>
+    </section>
+  `;
+}
+
 function renderCleanupPanel(data: AdminDashboardData): string {
   return `
     <section class="panel cleanup-panel" aria-label="Limpeza operacional">
@@ -580,7 +628,7 @@ function renderCleanupPanel(data: AdminDashboardData): string {
   `;
 }
 
-function renderHtml(data: AdminDashboardData): string {
+function renderHtml(data: AdminDashboardData, options: { notice: string; adminTelegramTargets: number }): string {
   const averageTicket = data.totals.tickets > 0 ? data.totals.amount / data.totals.tickets : 0;
   const lastUpdate = formatDate(data.generatedAt);
   const dataUrl = buildAdminUrl(data, { format: "json" });
@@ -699,6 +747,37 @@ function renderHtml(data: AdminDashboardData): string {
     .cleanup-panel p {
       max-width: 760px;
       margin-bottom: 6px;
+    }
+    .notify-panel {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+      gap: 14px;
+      align-items: end;
+      margin-bottom: 14px;
+      border-color: #b6ded8;
+      background: #f7fcfb;
+    }
+    .notify-panel h2 {
+      color: var(--accent-dark);
+      margin-bottom: 5px;
+    }
+    .notify-panel p {
+      max-width: 760px;
+      margin-bottom: 6px;
+    }
+    .notify-form {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+    .notice {
+      border: 1px solid #b6ded8;
+      border-radius: 8px;
+      background: #edf7f5;
+      color: var(--accent-dark);
+      font-weight: 800;
+      margin-bottom: 14px;
+      padding: 10px 12px;
     }
     .cleanup-form, .danger-form {
       display: grid;
@@ -1014,7 +1093,7 @@ function renderHtml(data: AdminDashboardData): string {
       .top-actions { justify-content: flex-start; width: 100%; }
       .live, .logout { flex: 1 1 130px; }
       h1 { font-size: 22px; }
-      .filters, .cleanup-panel, .metrics, .split, .ticket-grid, .message-grid { grid-template-columns: 1fr; }
+      .filters, .notify-panel, .cleanup-panel, .metrics, .split, .ticket-grid, .message-grid { grid-template-columns: 1fr; }
       .filters {
         gap: 8px;
         padding: 10px;
@@ -1115,6 +1194,8 @@ function renderHtml(data: AdminDashboardData): string {
     </header>
 
     ${renderFilters(data)}
+    ${renderNotice(options.notice)}
+    ${renderAdminNotificationsPanel(options.adminTelegramTargets)}
     ${renderCleanupPanel(data)}
 
     <section class="metrics" aria-label="Indicadores">
@@ -1247,6 +1328,7 @@ export default async function handler(req: any, res: any): Promise<void> {
     }
 
     const params = requestSearchParams(req);
+    const notice = searchParamValue(params, "notice");
     const data = await loadAdminDashboardData({
       q: searchParamValue(params, "q"),
       status: searchParamValue(params, "status") || "todos",
@@ -1261,8 +1343,10 @@ export default async function handler(req: any, res: any): Promise<void> {
       return;
     }
 
+    const adminTelegramTargets = await countAdminTelegramTargets();
+
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.status(200).send(renderHtml(data));
+    res.status(200).send(renderHtml(data, { notice, adminTelegramTargets }));
   } catch (error) {
     console.error(error);
     res.status(500).send("Erro ao carregar o painel administrativo.");

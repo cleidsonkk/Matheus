@@ -12,6 +12,7 @@ import {
   buildTelegramContactRegisteredMessage,
   buildTelegramWelcomeMessage
 } from "../src/modules/messageBuilder.js";
+import { parseAdminNotificationCommand } from "../src/modules/adminNotificationCommand.js";
 import { parseInboundTelegramMessage } from "../src/modules/telegramWebhookParser.js";
 import { extractTicketCode, extractTicketCodes } from "../src/modules/ticketExtractor.js";
 
@@ -64,6 +65,9 @@ const startInbound = parseInboundTelegramMessage(startUpdate);
 assert(startInbound, "telegram /start must be parsed");
 assertEqual(startInbound?.recipientId, "7001", "telegram chat id must be used for replies");
 assertIncludes(buildTelegramWelcomeMessage(), "Compartilhar meu telefone", "welcome message must ask for phone sharing");
+assertEqual(parseAdminNotificationCommand("/admin 2606"), "2606", "admin notification command must extract password");
+assertEqual(parseAdminNotificationCommand("/notificacoes senha forte"), "senha forte", "admin notification command must accept alias");
+assertEqual(parseAdminNotificationCommand("/start"), null, "normal Telegram command must not be treated as admin registration");
 
 const contactUpdate = {
   update_id: 1002,

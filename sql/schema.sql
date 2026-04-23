@@ -119,3 +119,18 @@ CREATE TABLE IF NOT EXISTS security_events (
 
 CREATE INDEX IF NOT EXISTS security_events_created_at_idx
   ON security_events (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS admin_notification_targets (
+  channel text NOT NULL DEFAULT 'telegram',
+  target_id text NOT NULL,
+  display_name text,
+  username text,
+  enabled boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  last_notified_at timestamptz,
+  PRIMARY KEY (channel, target_id)
+);
+
+CREATE INDEX IF NOT EXISTS admin_notification_targets_enabled_idx
+  ON admin_notification_targets (channel, enabled, updated_at DESC);

@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { config } from "../config.js";
 import { log } from "../logger.js";
 import type { InboundMessage, ValidationJob } from "../types.js";
-import { notifyAdminExtractionFailure, notifyAdminSafely } from "./adminNotifier.js";
+import { handleAdminNotificationCommand } from "./adminNotificationCommand.js";
+import { notifyAdminContactUpdate, notifyAdminExtractionFailure, notifyAdminSafely } from "./adminNotifier.js";
 import { getCustomerCreditSummary } from "./credit.js";
 import { formatPhoneNumber, isTelegramContactMessage, upsertCustomerProfileFromInbound, upsertTelegramContact } from "./customerProfile.js";
 import {
@@ -26,6 +27,10 @@ export async function prepareInboundForProcessing(inbound: InboundMessage): Prom
     return { kind: "ignored", reason: "mensagem_muito_longa" };
   }
 
+  if (await handleAdminNotificationCommand(inbound)) {
+    return { kind: "ignored", reason: "admin_notification_command" };
+  }
+
   await upsertCustomerProfileFromInbound(inbound).catch((error) => {
     log("warn", "Falha ao atualizar perfil do cliente", {
       channel: inbound.channel,
@@ -39,8 +44,18 @@ export async function prepareInboundForProcessing(inbound: InboundMessage): Prom
 
     if (result.stored) {
       await sendText(inbound.channel, inbound.recipientId, buildTelegramContactRegisteredMessage(formatPhoneNumber(result.phoneNumber) ?? result.phoneNumber));
+      notifyAdminSafely(notifyAdminContactUpdate(inbound, true, result.phoneNumber), {
+        channel: inbound.channel,
+        recipientId: inbound.recipientId,
+        reason: "telegram_contact_registered"
+      });
     } else {
       await sendText(inbound.channel, inbound.recipientId, buildTelegramContactRejectedMessage());
+      notifyAdminSafely(notifyAdminContactUpdate(inbound, false, inbound.contactPhone ?? null), {
+        channel: inbound.channel,
+        recipientId: inbound.recipientId,
+        reason: "telegram_contact_rejected"
+      });
     }
 
     return { kind: "ignored", reason: "telegram_contact" };
