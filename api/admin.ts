@@ -657,8 +657,8 @@ function renderHtml(data: AdminDashboardData): string {
       box-shadow: var(--shadow);
       margin-bottom: 20px;
     }
-    table { width: 100%; min-width: 1380px; border-collapse: collapse; }
-    th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    table { width: 100%; min-width: 0; table-layout: fixed; border-collapse: collapse; }
+    th, td { padding: 10px 9px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
     th {
       position: sticky;
       top: 0;
@@ -674,11 +674,12 @@ function renderHtml(data: AdminDashboardData): string {
     .money-actions {
       display: grid;
       gap: 6px;
-      min-width: 190px;
+      min-width: 0;
+      width: 100%;
     }
     .money-actions form {
       display: grid;
-      grid-template-columns: minmax(78px, 1fr) auto;
+      grid-template-columns: 1fr;
       gap: 6px;
       align-items: center;
     }
@@ -689,8 +690,8 @@ function renderHtml(data: AdminDashboardData): string {
       font-size: 12px;
     }
     .money-actions button {
-      width: auto;
-      min-width: 62px;
+      width: 100%;
+      min-width: 0;
     }
     .empty, .empty-block, .empty-text {
       color: var(--muted);
