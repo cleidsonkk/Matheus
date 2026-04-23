@@ -51,6 +51,34 @@ function defaultCreditLimit(): number {
   return money(config.customerDefaultCreditLimit);
 }
 
+export function requiredPaymentForTicket(credit: Pick<CustomerCreditSummary, "limit" | "outstanding" | "ticketAmount">): number {
+  if (credit.limit === null || credit.ticketAmount === undefined) {
+    return 0;
+  }
+
+  return money(Math.max(0, credit.outstanding + credit.ticketAmount - credit.limit));
+}
+
+export function applyConfirmedTicketToCredit(credit: CustomerCreditSummary): CustomerCreditSummary {
+  const ticketAmount = money(credit.ticketAmount);
+
+  if (ticketAmount <= 0) {
+    return credit;
+  }
+
+  const used = money(credit.used + ticketAmount);
+  const outstanding = money(credit.outstanding + ticketAmount);
+  const available = credit.limit === null ? null : money(Math.max(0, credit.limit - outstanding));
+
+  return {
+    ...credit,
+    used,
+    outstanding,
+    available,
+    requiredPayment: 0
+  };
+}
+
 function rowToCreditSummary(row: CreditRow | undefined, ticketAmount?: number): CustomerCreditSummary {
   const limited = true;
   const limit = nullableMoney(row?.credit_limit) ?? defaultCreditLimit();
@@ -62,7 +90,7 @@ function rowToCreditSummary(row: CreditRow | undefined, ticketAmount?: number): 
     ? Math.max(0, limit - outstanding)
     : Math.max(0, money(row.available_amount));
 
-  return {
+  const summary: CustomerCreditSummary = {
     limited,
     limit,
     used,
@@ -72,6 +100,12 @@ function rowToCreditSummary(row: CreditRow | undefined, ticketAmount?: number): 
     available,
     ticketAmount
   };
+
+  if (ticketAmount !== undefined) {
+    summary.requiredPayment = requiredPaymentForTicket(summary);
+  }
+
+  return summary;
 }
 
 function emptySummary(): CustomerCreditSummary {

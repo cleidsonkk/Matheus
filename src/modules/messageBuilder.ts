@@ -29,12 +29,16 @@ export function buildCustomerMessage(result: MessageInput): string {
     ];
 
     if (credit?.limit !== undefined) {
-      lines.push(`Limite: ${formatMoney(credit.limit)}`);
-      lines.push(`Em aberto: ${formatMoney(credit.outstanding)}`);
-      lines.push(`Disponível: ${formatMoney(credit.available)}`);
+      lines.push(`Seu limite: ${formatMoney(credit.limit)}`);
+      lines.push(`Em aberto: ${formatMoney(credit.outstanding)} · Bilhete: ${formatMoney(credit.ticketAmount ?? 0)}`);
+      lines.push(`Disponível agora: ${formatMoney(credit.available)}`);
+
+      if ((credit.requiredPayment ?? 0) > 0) {
+        lines.push(`Para confirmar, faça pagamento mínimo de ${formatMoney(credit.requiredPayment ?? 0)}.`);
+      }
     }
 
-    lines.push("Procure o administrador para registrar pagamento ou aumentar seu limite.");
+    lines.push("Ou aguarde o administrador liberar mais limite.");
     return lines.join("\n");
   }
 
@@ -46,6 +50,10 @@ export function buildCustomerMessage(result: MessageInput): string {
 
     if (result.codigo_confirmacao) {
       lines.push(`Confirmação: ${result.codigo_confirmacao}`);
+    }
+
+    if (result.credit?.available !== undefined) {
+      lines.push(`Limite disponível: ${formatMoney(result.credit.available)}`);
     }
 
     lines.push("Guarde este comprovante. Boa sorte! 🍀");

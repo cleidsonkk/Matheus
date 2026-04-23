@@ -15,6 +15,7 @@ export type CreditSnapshot = {
   outstanding: number;
   available: number | null;
   ticketAmount?: number;
+  requiredPayment?: number;
 };
 
 export type CreditCheckInput = {

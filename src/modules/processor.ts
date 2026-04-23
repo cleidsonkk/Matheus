@@ -3,7 +3,9 @@ import type { ValidationJob } from "../types.js";
 import { notifyAdminSafely, notifyAdminValidationResult } from "./adminNotifier.js";
 import { appendAuditLog } from "./auditLog.js";
 import {
+  applyConfirmedTicketToCredit,
   commitCustomerCreditReservation,
+  type CustomerCreditSummary,
   extractTicketFinancials,
   releaseCustomerCreditReservation,
   reserveCustomerCredit
@@ -26,6 +28,7 @@ export async function processValidationJob(job: ValidationJob): Promise<void> {
   await markJobProcessing(job.id);
 
   let creditReserved = false;
+  let creditSnapshot: CustomerCreditSummary | undefined;
   const result = await automation.validateAndConfirm(job.codigo, {
     beforeConfirm: async ({ dados_bilhete }) => {
       const financials = extractTicketFinancials(dados_bilhete);
@@ -38,9 +41,15 @@ export async function processValidationJob(job: ValidationJob): Promise<void> {
       });
 
       creditReserved = decision.allowed && Boolean(decision.credit?.limited);
+      creditSnapshot = decision.credit;
       return decision;
     }
   });
+
+  if (result.confirmado && creditSnapshot) {
+    result.credit = applyConfirmedTicketToCredit(creditSnapshot);
+  }
+
   const message = buildCustomerMessage(result);
 
   await markJobFinished(job.id, result, message);

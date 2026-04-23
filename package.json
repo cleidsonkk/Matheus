@@ -9,6 +9,7 @@
     "build": "tsc",
     "check": "tsc --noEmit -p tsconfig.check.json",
     "check:money": "tsx scripts/check-money-parsing.ts",
+    "check:credit": "tsx scripts/check-credit-limit.ts",
     "check:responsive": "tsx scripts/check-responsive.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "site:capture-session": "tsx scripts/capture-site-session.ts",

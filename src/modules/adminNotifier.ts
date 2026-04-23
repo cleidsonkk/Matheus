@@ -47,6 +47,14 @@ function creditLines(credit: CustomerCreditSummary | null): string[] {
     `Pago: ${formatMoney(credit.payments)}`
   ];
 
+  if ((credit.ticketAmount ?? 0) > 0) {
+    lines.push(`Valor do bilhete: ${formatMoney(credit.ticketAmount ?? 0)}`);
+  }
+
+  if ((credit.requiredPayment ?? 0) > 0) {
+    lines.push(`Pagamento mínimo para liberar: ${formatMoney(credit.requiredPayment ?? 0)}`);
+  }
+
   if (credit.limit && credit.available !== null) {
     const availablePercent = credit.limit > 0 ? (credit.available / credit.limit) * 100 : 0;
 
