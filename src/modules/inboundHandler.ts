@@ -44,14 +44,14 @@ export async function prepareInboundForProcessing(inbound: InboundMessage): Prom
 
     if (result.stored) {
       await sendText(inbound.channel, inbound.recipientId, buildTelegramContactRegisteredMessage(formatPhoneNumber(result.phoneNumber) ?? result.phoneNumber));
-      notifyAdminSafely(notifyAdminContactUpdate(inbound, true, result.phoneNumber), {
+      await notifyAdminSafely(notifyAdminContactUpdate(inbound, true, result.phoneNumber), {
         channel: inbound.channel,
         recipientId: inbound.recipientId,
         reason: "telegram_contact_registered"
       });
     } else {
       await sendText(inbound.channel, inbound.recipientId, buildTelegramContactRejectedMessage());
-      notifyAdminSafely(notifyAdminContactUpdate(inbound, false, inbound.contactPhone ?? null), {
+      await notifyAdminSafely(notifyAdminContactUpdate(inbound, false, inbound.contactPhone ?? null), {
         channel: inbound.channel,
         recipientId: inbound.recipientId,
         reason: "telegram_contact_rejected"
@@ -69,7 +69,7 @@ export async function prepareInboundForProcessing(inbound: InboundMessage): Prom
       : null;
 
     await sendText(inbound.channel, inbound.recipientId, buildMultipleCodesMessage(summary));
-    notifyAdminSafely(notifyAdminExtractionFailure(inbound, "multiplos_codigos"), {
+    await notifyAdminSafely(notifyAdminExtractionFailure(inbound, "multiplos_codigos"), {
       channel: inbound.channel,
       recipientId: inbound.recipientId,
       reason: "multiplos_codigos"
@@ -93,7 +93,7 @@ export async function prepareInboundForProcessing(inbound: InboundMessage): Prom
       externalMessageId: inbound.externalMessageId,
       raw: inbound.raw
     });
-    notifyAdminSafely(notifyAdminExtractionFailure(inbound, "codigo_invalido"), {
+    await notifyAdminSafely(notifyAdminExtractionFailure(inbound, "codigo_invalido"), {
       channel: inbound.channel,
       recipientId: inbound.recipientId,
       reason: "codigo_invalido"

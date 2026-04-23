@@ -90,7 +90,7 @@ export async function processValidationJob(job: ValidationJob): Promise<void> {
       deliveryError
     });
 
-    notifyAdminSafely(notifyAdminValidationResult(job, {
+    await notifyAdminSafely(notifyAdminValidationResult(job, {
       ...result,
       mensagem_erro: result.mensagem_erro
         ? `${result.mensagem_erro} | Falha ao enviar resposta ao cliente: ${deliveryError}`
@@ -124,7 +124,7 @@ export async function processValidationJob(job: ValidationJob): Promise<void> {
     });
   });
 
-  notifyAdminSafely(notifyAdminValidationResult(job, result), {
+  await notifyAdminSafely(notifyAdminValidationResult(job, result), {
     jobId: job.id,
     channel: job.channel,
     recipientId: job.recipientId,

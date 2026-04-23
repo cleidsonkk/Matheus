@@ -352,11 +352,13 @@ export async function notifyAdminContactUpdate(inbound: InboundMessage, stored: 
   await sendAdminMessage(lines.join("\n"));
 }
 
-export function notifyAdminSafely(promise: Promise<void>, context: Record<string, unknown>): void {
-  promise.catch((error) => {
+export async function notifyAdminSafely(promise: Promise<void>, context: Record<string, unknown>): Promise<void> {
+  try {
+    await promise;
+  } catch (error) {
     log("warn", "Falha ao notificar administrador", {
       ...context,
       error: error instanceof Error ? error.message : String(error)
     });
-  });
+  }
 }
