@@ -89,6 +89,14 @@ O painel deve mostrar:
 - reservas;
 - erro ou status de cada bilhete.
 
+O administrador tambem pode apagar dados de teste diretamente pelo painel:
+
+- apagar uma solicitacao especifica em `Detalhes completos`;
+- limpar todos os dados operacionais em `Limpeza operacional`;
+- confirmar qualquer exclusao digitando a senha do administrador.
+
+A limpeza remove bilhetes, clientes, limites e pagamentos cadastrados. Ela nao altera a estrutura do banco, o login do administrador nem os logs de seguranca.
+
 ## 9. Checklist antes de uso real
 
 Rodar:

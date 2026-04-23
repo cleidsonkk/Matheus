@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { config } from "../src/config.js";
-import { isAdminRequestAuthorized } from "../src/modules/adminAuth.js";
+import { isAdminRequestAuthorized, verifyAdminCredentials } from "../src/modules/adminAuth.js";
+import { clearOperationalData, deleteValidationJobById } from "../src/modules/adminCleanup.js";
 import {
   type AdminBreakdown,
   type AdminCustomerSummary,
@@ -8,6 +10,7 @@ import {
   loadAdminDashboardData
 } from "../src/modules/adminDashboard.js";
 import { formatMoney as formatCreditMoney, parseMoneyInput, recordCustomerCreditPayment, setCustomerCreditLimit } from "../src/modules/credit.js";
+import { recordSecurityEvent } from "../src/modules/persistence.js";
 
 const STATUSES = [
   "todos",
@@ -22,6 +25,8 @@ const STATUSES = [
 ] as const;
 
 const CHANNELS = ["todos", "telegram", "whatsapp"] as const;
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function requestSearchParams(req: any): URLSearchParams {
   const host = String(req.headers?.host ?? "localhost");
@@ -62,9 +67,81 @@ async function readForm(req: any): Promise<URLSearchParams> {
   return new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
 }
 
+function redirectToAdmin(res: any): void {
+  res.statusCode = 303;
+  res.setHeader("Location", "/api/admin");
+  res.end();
+}
+
+function requireAdminPassword(form: URLSearchParams, res: any): boolean {
+  const password = form.get("adminPassword") ?? "";
+
+  if (!verifyAdminCredentials(config.admin.username, password)) {
+    res.status(403).send("Senha do administrador invalida.");
+    return false;
+  }
+
+  return true;
+}
+
+function firstHeader(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
+
+function requestIp(req: any): string {
+  return firstHeader(req.headers?.["x-forwarded-for"]).split(",")[0].trim()
+    || firstHeader(req.headers?.["x-real-ip"])
+    || req.socket?.remoteAddress
+    || "";
+}
+
+async function recordAdminCleanupEvent(req: any, eventType: string, metadata: Record<string, unknown>): Promise<void> {
+  try {
+    await recordSecurityEvent({
+      id: randomUUID(),
+      eventType,
+      ip: requestIp(req),
+      userAgent: firstHeader(req.headers?.["user-agent"]),
+      metadata
+    });
+  } catch (error) {
+    console.error("Falha ao registrar auditoria administrativa", error);
+  }
+}
+
 async function handleAdminAction(req: any, res: any): Promise<void> {
   const form = await readForm(req);
   const action = form.get("action") ?? "";
+
+  if (action === "delete_job") {
+    if (!requireAdminPassword(form, res)) {
+      return;
+    }
+
+    const jobId = form.get("jobId") ?? "";
+
+    if (!UUID_PATTERN.test(jobId)) {
+      res.status(400).send("Registro invalido.");
+      return;
+    }
+
+    const deleted = await deleteValidationJobById(jobId);
+    await recordAdminCleanupEvent(req, "admin_delete_validation_job", { jobId, deleted });
+    redirectToAdmin(res);
+    return;
+  }
+
+  if (action === "clear_operational_data") {
+    if (!requireAdminPassword(form, res)) {
+      return;
+    }
+
+    const deleted = await clearOperationalData();
+    await recordAdminCleanupEvent(req, "admin_clear_operational_data", deleted);
+    redirectToAdmin(res);
+    return;
+  }
+
   const channel = form.get("channel") ?? "";
   const phone = form.get("phone") ?? "";
   const customerName = form.get("customerName") ?? "Cliente";
@@ -103,9 +180,7 @@ async function handleAdminAction(req: any, res: any): Promise<void> {
     return;
   }
 
-  res.statusCode = 303;
-  res.setHeader("Location", "/api/admin");
-  res.end();
+  redirectToAdmin(res);
 }
 
 function escapeHtml(value: unknown): string {
@@ -362,6 +437,20 @@ function renderGameCards(ticket: AdminTicket): string {
   `;
 }
 
+function renderTicketDeleteForm(ticket: AdminTicket): string {
+  return `
+    <form method="post" action="/api/admin" class="danger-form" onsubmit="return confirm('Apagar este registro do painel?');">
+      <input type="hidden" name="action" value="delete_job">
+      <input type="hidden" name="jobId" value="${escapeHtml(ticket.id)}">
+      <label>
+        <span>Senha do administrador</span>
+        <input type="password" name="adminPassword" autocomplete="current-password" placeholder="Senha para apagar" required>
+      </label>
+      <button type="submit" class="danger-button">Apagar este registro</button>
+    </form>
+  `;
+}
+
 function renderTicketCard(ticket: AdminTicket): string {
   const deliveryText = [
     ticket.textSent ? "texto enviado" : "texto pendente",
@@ -408,6 +497,7 @@ function renderTicketCard(ticket: AdminTicket): string {
           ${ticket.errorMessage ? `<div><dt>Erro</dt><dd>${escapeHtml(ticket.errorMessage)}</dd></div>` : ""}
           ${ticket.deliveryError ? `<div><dt>Erro de entrega</dt><dd>${escapeHtml(ticket.deliveryError)}</dd></div>` : ""}
         </dl>
+        ${renderTicketDeleteForm(ticket)}
       </details>
     </article>
   `;
@@ -464,6 +554,29 @@ function renderFilters(data: AdminDashboardData): string {
       <a class="button secondary" href="/api/admin">Limpar</a>
       <a class="button ghost" href="${escapeHtml(buildAdminUrl(data, { format: "json" }))}">Exportar JSON</a>
     </form>
+  `;
+}
+
+function renderCleanupPanel(data: AdminDashboardData): string {
+  return `
+    <section class="panel cleanup-panel" aria-label="Limpeza operacional">
+      <div>
+        <span class="eyebrow">Limpeza operacional</span>
+        <h2>Apagar testes do painel</h2>
+        <p class="muted">
+          Remove bilhetes, clientes, pagamentos, limites e contatos cadastrados. A estrutura do banco, o administrador e os logs de seguranca continuam preservados.
+        </p>
+        <small>${formatInteger(data.totals.tickets)} bilhete(s) e ${formatInteger(data.totals.customers)} cliente(s) visiveis agora.</small>
+      </div>
+      <form method="post" action="/api/admin" class="cleanup-form" onsubmit="return confirm('Limpar todos os dados operacionais do painel?');">
+        <input type="hidden" name="action" value="clear_operational_data">
+        <label>
+          <span>Senha do administrador</span>
+          <input type="password" name="adminPassword" autocomplete="current-password" placeholder="Confirme com a senha" required>
+        </label>
+        <button type="submit" class="danger-button">Limpar tudo</button>
+      </form>
+    </section>
   `;
 }
 
@@ -569,6 +682,45 @@ function renderHtml(data: AdminDashboardData): string {
       gap: 10px;
       align-items: end;
       margin-bottom: 14px;
+    }
+    .cleanup-panel {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+      gap: 14px;
+      align-items: end;
+      margin-bottom: 14px;
+      border-color: #f3c3bd;
+      background: #fffafa;
+    }
+    .cleanup-panel h2 {
+      color: var(--bad);
+      margin-bottom: 5px;
+    }
+    .cleanup-panel p {
+      max-width: 760px;
+      margin-bottom: 6px;
+    }
+    .cleanup-form, .danger-form {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+    .danger-form {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #f3c3bd;
+      grid-template-columns: minmax(180px, 260px) auto;
+      align-items: end;
+    }
+    .danger-button {
+      background: var(--bad);
+      border-color: var(--bad);
+      color: #ffffff;
+      font-weight: 800;
+    }
+    .danger-button:hover {
+      background: #8f1f16;
+      border-color: #8f1f16;
     }
     label span {
       display: block;
@@ -862,7 +1014,7 @@ function renderHtml(data: AdminDashboardData): string {
       .top-actions { justify-content: flex-start; width: 100%; }
       .live, .logout { flex: 1 1 130px; }
       h1 { font-size: 22px; }
-      .filters, .metrics, .split, .ticket-grid, .message-grid { grid-template-columns: 1fr; }
+      .filters, .cleanup-panel, .metrics, .split, .ticket-grid, .message-grid { grid-template-columns: 1fr; }
       .filters {
         gap: 8px;
         padding: 10px;
@@ -912,6 +1064,9 @@ function renderHtml(data: AdminDashboardData): string {
       .money-actions form {
         grid-template-columns: minmax(0, 1fr) auto;
       }
+      .danger-form {
+        grid-template-columns: 1fr;
+      }
       .money-actions input {
         min-width: 0;
       }
@@ -936,6 +1091,9 @@ function renderHtml(data: AdminDashboardData): string {
       .money-actions form {
         grid-template-columns: 1fr;
       }
+      .danger-form {
+        grid-template-columns: 1fr;
+      }
       .money-actions button {
         width: 100%;
       }
@@ -957,6 +1115,7 @@ function renderHtml(data: AdminDashboardData): string {
     </header>
 
     ${renderFilters(data)}
+    ${renderCleanupPanel(data)}
 
     <section class="metrics" aria-label="Indicadores">
       ${metric("Bilhetes", formatInteger(data.totals.tickets), `${formatInteger(data.totals.customers)} cliente(s)`)}
