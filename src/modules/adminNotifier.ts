@@ -1,7 +1,7 @@
 import { config } from "../config.js";
 import { log } from "../logger.js";
 import type { InboundMessage, TicketConfirmationResult, ValidationJob } from "../types.js";
-import { loadAdminTelegramTargets, markAdminTelegramTargetNotified } from "./adminNotificationTargets.js";
+import { loadAdminTelegramTargets, markAdminTelegramTargetNotified, syncConfiguredAdminTelegramTargets } from "./adminNotificationTargets.js";
 import { extractTicketFinancials, formatMoney, getCustomerCreditSummary, type CustomerCreditSummary } from "./credit.js";
 import { customerIdentityFromInbound, formatPhoneNumber, getCustomerProfile } from "./customerProfile.js";
 import { TelegramClient } from "./telegram.js";
@@ -189,6 +189,8 @@ function splitMessage(text: string): string[] {
 }
 
 async function sendAdminMessage(text: string): Promise<SendAdminMessageResult> {
+  await syncConfiguredAdminTelegramTargets();
+
   const targets = await loadAdminTelegramTargets();
 
   if (targets.length === 0) {

@@ -52,6 +52,45 @@ function uniqueTargets(targets: AdminNotificationTarget[]): AdminNotificationTar
   return unique;
 }
 
+export async function syncConfiguredAdminTelegramTargets(): Promise<number> {
+  const targets = envTargets();
+
+  if (!config.databaseUrl || targets.length === 0) {
+    return 0;
+  }
+
+  try {
+    await getSql().transaction((tx) => targets.map((target) => tx`
+      INSERT INTO admin_notification_targets (
+        channel,
+        target_id,
+        display_name,
+        username,
+        enabled
+      )
+      VALUES (
+        'telegram',
+        ${target.targetId},
+        ${target.displayName},
+        ${target.username},
+        true
+      )
+      ON CONFLICT (channel, target_id) DO UPDATE SET
+        display_name = COALESCE(admin_notification_targets.display_name, EXCLUDED.display_name),
+        username = COALESCE(admin_notification_targets.username, EXCLUDED.username),
+        enabled = true,
+        updated_at = now()
+    `));
+  } catch (error) {
+    log("warn", "Falha ao sincronizar destinos administrativos configurados no ambiente", {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return 0;
+  }
+
+  return uniqueTargets(targets).length;
+}
+
 export async function loadAdminTelegramTargets(): Promise<AdminNotificationTarget[]> {
   const targets = envTargets();
 
