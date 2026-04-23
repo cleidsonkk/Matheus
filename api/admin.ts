@@ -23,16 +23,15 @@ const STATUSES = [
 
 const CHANNELS = ["todos", "telegram", "whatsapp"] as const;
 
-function queryStringValue(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
+function requestSearchParams(req: any): URLSearchParams {
+  const host = String(req.headers?.host ?? "localhost");
+  const protocol = String(req.headers?.["x-forwarded-proto"] ?? "https").split(",")[0].trim() || "https";
+  const url = new URL(String(req.url ?? "/api/admin"), `${protocol}://${host}`);
+  return url.searchParams;
+}
 
-  if (Array.isArray(value) && typeof value[0] === "string") {
-    return value[0];
-  }
-
-  return "";
+function searchParamValue(params: URLSearchParams, name: string): string {
+  return params.get(name) ?? "";
 }
 
 async function readForm(req: any): Promise<URLSearchParams> {
@@ -1088,16 +1087,17 @@ export default async function handler(req: any, res: any): Promise<void> {
       return;
     }
 
+    const params = requestSearchParams(req);
     const data = await loadAdminDashboardData({
-      q: queryStringValue(req.query.q),
-      status: queryStringValue(req.query.status) || "todos",
-      channel: queryStringValue(req.query.channel) || "todos",
-      from: queryStringValue(req.query.from),
-      to: queryStringValue(req.query.to),
-      limit: Number.parseInt(queryStringValue(req.query.limit) || "100", 10)
+      q: searchParamValue(params, "q"),
+      status: searchParamValue(params, "status") || "todos",
+      channel: searchParamValue(params, "channel") || "todos",
+      from: searchParamValue(params, "from"),
+      to: searchParamValue(params, "to"),
+      limit: Number.parseInt(searchParamValue(params, "limit") || "100", 10)
     });
 
-    if (queryStringValue(req.query.format) === "json") {
+    if (searchParamValue(params, "format") === "json") {
       res.status(200).json(data);
       return;
     }
