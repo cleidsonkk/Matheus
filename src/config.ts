@@ -60,6 +60,7 @@ export const config = {
     apiToken: process.env.WHATSAPP_API_TOKEN ?? "",
     instance: process.env.WHATSAPP_INSTANCE ?? "",
     clientToken: process.env.WHATSAPP_CLIENT_TOKEN ?? "",
+    webhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN ?? process.env.WEBHOOK_SECRET ?? "",
     metaPhoneNumberId: process.env.META_PHONE_NUMBER_ID ?? "",
     metaApiVersion: process.env.META_API_VERSION ?? "v21.0"
   },

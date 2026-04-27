@@ -15,17 +15,38 @@ function normalizePhone(raw: string): string {
   return remoteJid.replace(/\D/g, "");
 }
 
+function firstMetaMessage(payload: Record<string, any>): Record<string, any> | null {
+  const entries = Array.isArray(payload.entry) ? payload.entry : [];
+
+  for (const entry of entries) {
+    const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+
+    for (const change of changes) {
+      const messages = Array.isArray(change?.value?.messages) ? change.value.messages : [];
+      const message = messages[0];
+
+      if (message && typeof message === "object") {
+        return message;
+      }
+    }
+  }
+
+  return null;
+}
+
 export function parseInboundWhatsAppMessage(body: unknown): InboundMessage | null {
   if (!body || typeof body !== "object") {
     return null;
   }
 
   const payload = body as Record<string, any>;
+  const metaMessage = firstMetaMessage(payload);
   const data = payload.data ?? {};
-  const message = data.message ?? payload.message ?? {};
+  const message = metaMessage ?? data.message ?? payload.message ?? {};
   const key = data.key ?? payload.key ?? {};
 
   const rawNumber = pickString(
+    metaMessage?.from,
     payload.numero,
     payload.number,
     payload.phone,
@@ -49,6 +70,7 @@ export function parseInboundWhatsAppMessage(body: unknown): InboundMessage | nul
     data.body,
     message.conversation,
     message.text,
+    message?.text?.body,
     message?.extendedTextMessage?.text,
     message?.ephemeralMessage?.message?.extendedTextMessage?.text,
     message?.ephemeralMessage?.message?.conversation
@@ -60,6 +82,7 @@ export function parseInboundWhatsAppMessage(body: unknown): InboundMessage | nul
     payload.id,
     data.messageId,
     data.id,
+    metaMessage?.id,
     key.id,
     message.id
   );

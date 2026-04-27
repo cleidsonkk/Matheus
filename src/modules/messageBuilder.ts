@@ -20,6 +20,38 @@ function getStatusDescription(result: MessageInput): string | null {
   return typeof statusDescription === "string" && statusDescription.trim() ? statusDescription.trim() : null;
 }
 
+function getReadableErrorMessage(error: string | null): string | null {
+  const raw = error?.trim();
+
+  if (!raw) {
+    return null;
+  }
+
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  const candidates = jsonMatch ? [jsonMatch[0], raw] : [raw];
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as Record<string, unknown>;
+      const message = parsed.Message ?? parsed.message ?? parsed.error;
+
+      if (typeof message === "string" && message.trim()) {
+        return message.trim();
+      }
+    } catch {
+      // The site sometimes returns plain text instead of JSON.
+    }
+  }
+
+  const cleaned = raw.replace(/^Erro ao consultar o bilhete:\s*/i, "").trim();
+
+  if (!cleaned || cleaned.length > 240 || cleaned.includes("<html") || cleaned.includes("<!doctype")) {
+    return null;
+  }
+
+  return cleaned;
+}
+
 export function buildCustomerMessage(result: MessageInput): string {
   if (result.status === "limite_excedido") {
     const credit = result.credit;
@@ -76,6 +108,18 @@ export function buildCustomerMessage(result: MessageInput): string {
       "⚠️ Não conseguimos localizar o código informado.",
       "Verifique se digitou corretamente e envie novamente."
     ].join("\n");
+  }
+
+  if (result.status === "erro") {
+    const readableError = getReadableErrorMessage(result.mensagem_erro);
+
+    if (readableError) {
+      return [
+        "Nao foi possivel confirmar este bilhete.",
+        `Codigo: ${result.codigo_bilhete}`,
+        `Motivo: ${readableError}`
+      ].join("\n");
+    }
   }
 
   return [

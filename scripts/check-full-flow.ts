@@ -15,6 +15,7 @@ import {
 import { parseAdminNotificationCommand } from "../src/modules/adminNotificationCommand.js";
 import { parseInboundTelegramMessage } from "../src/modules/telegramWebhookParser.js";
 import { extractTicketCode, extractTicketCodes } from "../src/modules/ticketExtractor.js";
+import { parseInboundWhatsAppMessage } from "../src/modules/webhookParser.js";
 
 function assert(condition: unknown, message: string): void {
   if (!condition) {
@@ -110,6 +111,26 @@ const spacedExtraction = extractTicketCode("V072 ZHQW NZV9");
 assert(spacedExtraction.codigo_encontrado, "spaced ticket code must be found");
 assertEqual(spacedExtraction.codigo, "V072 ZHQW NZV9", "spaced ticket code must stay normalized");
 
+const metaInbound = parseInboundWhatsAppMessage({
+  object: "whatsapp_business_account",
+  entry: [{
+    changes: [{
+      value: {
+        messages: [{
+          from: "5579999105302",
+          id: "wamid.test",
+          type: "text",
+          text: { body: "confirma pra mim V072ZHQWNZV9" }
+        }]
+      }
+    }]
+  }]
+});
+assert(metaInbound, "Meta WhatsApp payload must be parsed");
+assertEqual(metaInbound?.recipientId, "5579999105302", "Meta WhatsApp sender must be used as recipient");
+assertEqual(metaInbound?.mensagem, "confirma pra mim V072ZHQWNZV9", "Meta WhatsApp text body must be parsed");
+assertEqual(metaInbound?.externalMessageId, "wamid.test", "Meta WhatsApp message id must be parsed");
+
 const multiCodes = extractTicketCodes("V072ZHQWNZV9 e G3J4IZPP4J80");
 assertEqual(multiCodes.length, 2, "multiple codes must be detected");
 assertIncludes(buildMultipleCodesMessage({
@@ -185,6 +206,21 @@ const blockedResult: TicketConfirmationResult = {
 const blockedMessage = buildCustomerMessage(blockedResult);
 assertIncludes(blockedMessage, "Para confirmar, faça pagamento mínimo de R$ 10,00.", "blocked response must show minimum payment");
 assert(!blockedMessage.includes("Bilhete confirmado"), "blocked response must not look like a confirmation");
+
+const siteErrorResult: TicketConfirmationResult = {
+  confirmado: false,
+  codigo_confirmacao: null,
+  screenshot_base64: null,
+  screenshot_path: null,
+  mensagem_erro: "{\"Message\":\"Servidor: Time A x Time B - Horario limite para o jogo encerrado.\"}",
+  status: "erro",
+  codigo_bilhete: "W9T6 AGA8 3PR8",
+  dados_bilhete: null
+};
+
+const siteErrorMessage = buildCustomerMessage(siteErrorResult);
+assertIncludes(siteErrorMessage, "Nao foi possivel confirmar este bilhete.", "site error response must avoid generic instability text");
+assertIncludes(siteErrorMessage, "jogo encerrado", "site error response must explain the real site reason");
 
 const partialPayment = applyPaymentToCredit(exhaustedCredit, 50);
 assertEqual(partialPayment.outstanding, 50, "partial payment must reduce outstanding only by paid amount");

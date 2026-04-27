@@ -1,10 +1,25 @@
 import { waitUntil } from "@vercel/functions";
+import { config } from "../../src/config.js";
 import { prepareInboundForProcessing } from "../../src/modules/inboundHandler.js";
 import { processValidationJob } from "../../src/modules/processor.js";
 import { authorizeRequest } from "../../src/modules/security.js";
 import { parseInboundWhatsAppMessage } from "../../src/modules/webhookParser.js";
 
 export default async function handler(req: any, res: any): Promise<void> {
+  if (req.method === "GET") {
+    const mode = String(req.query?.["hub.mode"] ?? "");
+    const token = String(req.query?.["hub.verify_token"] ?? "");
+    const challenge = String(req.query?.["hub.challenge"] ?? "");
+
+    if (mode === "subscribe" && config.whatsapp.webhookVerifyToken && token === config.whatsapp.webhookVerifyToken) {
+      res.status(200).send(challenge);
+      return;
+    }
+
+    res.status(403).json({ ok: false, error: "verification_failed" });
+    return;
+  }
+
   if (req.method !== "POST") {
     res.status(405).json({ ok: false, error: "method_not_allowed" });
     return;
