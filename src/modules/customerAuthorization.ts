@@ -51,25 +51,51 @@ export function normalizeAuthorizedPhone(phone: string): string {
   return digits;
 }
 
+export function authorizedPhoneVariants(phone: string): string[] {
+  const normalized = normalizeAuthorizedPhone(phone);
+
+  if (!normalized) {
+    return [];
+  }
+
+  const variants = new Set<string>([normalized]);
+
+  if (normalized.startsWith("55")) {
+    const country = normalized.slice(0, 2);
+    const local = normalized.slice(2);
+
+    // Brazilian mobile numbers may arrive with or without the extra ninth digit.
+    if (local.length === 11 && local[2] === "9") {
+      variants.add(`${country}${local.slice(0, 2)}${local.slice(3)}`);
+    }
+
+    if (local.length === 10) {
+      variants.add(`${country}${local.slice(0, 2)}9${local.slice(2)}`);
+    }
+  }
+
+  return Array.from(variants);
+}
+
 export async function isCustomerAuthorized(channel: string, phone: string): Promise<boolean> {
   if (!config.databaseUrl) {
     return true;
   }
 
-  const normalizedPhone = normalizeAuthorizedPhone(phone);
+  const variants = authorizedPhoneVariants(phone);
 
-  if (!normalizedPhone) {
+  if (variants.length === 0) {
     return false;
   }
 
-  const rows = await getSql()`
+  const rows = await getSql().query(`
     SELECT 1
     FROM authorized_customer_ids
-    WHERE channel = ${channel}
-      AND phone = ${normalizedPhone}
+    WHERE channel = $1
+      AND phone = ANY($2::text[])
       AND enabled = true
     LIMIT 1
-  `;
+  `, [channel, variants]);
 
   return rows.length > 0;
 }

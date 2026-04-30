@@ -4,7 +4,7 @@ import {
   applyPaymentToCredit,
   requiredPaymentForTicket
 } from "../src/modules/credit.js";
-import { normalizeAuthorizedPhone } from "../src/modules/customerAuthorization.js";
+import { authorizedPhoneVariants, normalizeAuthorizedPhone } from "../src/modules/customerAuthorization.js";
 import { formatPhoneNumber, isTelegramContactMessage } from "../src/modules/customerProfile.js";
 import {
   buildCustomerMessage,
@@ -117,6 +117,11 @@ assertIncludes(
 );
 assertEqual(normalizeAuthorizedPhone("(79) 99910-5302"), "5579999105302", "authorized phone must normalize local mobile number");
 assertIncludes(buildUnauthorizedCustomerMessage(), "ainda", "unauthorized response must explain missing registration");
+assertEqual(
+  JSON.stringify(authorizedPhoneVariants("557999105302").sort()),
+  JSON.stringify(["557999105302", "5579999105302"].sort()),
+  "authorization variants must include Brazilian number with and without extra ninth digit"
+);
 
 const ticketMessage = "confirma pra mim V072ZHQWNZV9";
 const extraction = extractTicketCode(ticketMessage);
