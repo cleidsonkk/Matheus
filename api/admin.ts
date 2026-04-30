@@ -5,6 +5,7 @@ import { clearOperationalData, deleteValidationJobById } from "../src/modules/ad
 import { countAdminNotificationTargets } from "../src/modules/adminNotificationTargets.js";
 import { sendAdminTestNotification } from "../src/modules/adminNotifier.js";
 import {
+  deleteAuthorizedCustomerId,
   disableAuthorizedCustomerId,
   enableAuthorizedCustomerId,
   loadAuthorizedCustomerIds,
@@ -217,6 +218,24 @@ async function handleAdminAction(req: any, res: any): Promise<void> {
 
     await enableAuthorizedCustomerId(channel, phone);
     redirectToAdmin(res, "ID de celular liberado com sucesso.");
+    return;
+  }
+
+  if (action === "delete_authorized_customer_id") {
+    if (!requireAdminPassword(form, res)) {
+      return;
+    }
+
+    const channel = form.get("channel") ?? "whatsapp";
+    const phone = form.get("phone") ?? "";
+
+    if (!normalizeAuthorizedPhone(phone)) {
+      res.status(400).send("Celular invalido.");
+      return;
+    }
+
+    await deleteAuthorizedCustomerId(channel, phone);
+    redirectToAdmin(res, "Cadastro apagado com sucesso.");
     return;
   }
 
@@ -705,21 +724,30 @@ function renderAuthorizedCustomerIdsPanel(items: AuthorizedCustomerId[]): string
               <small>${escapeHtml(channelLabel(item.channel))}${item.customerName ? ` · ${escapeHtml(item.customerName)}` : ""}</small>
               <small>${escapeHtml(item.note ?? "Sem observacao")} · Atualizado em ${escapeHtml(formatDate(item.updatedAt))}</small>
             </div>
-            ${item.enabled ? `
-              <form method="post" action="/api/admin">
-                <input type="hidden" name="action" value="disable_authorized_customer_id">
+            <div class="authorized-actions">
+              ${item.enabled ? `
+                <form method="post" action="/api/admin">
+                  <input type="hidden" name="action" value="disable_authorized_customer_id">
+                  <input type="hidden" name="channel" value="${escapeHtml(item.channel)}">
+                  <input type="hidden" name="phone" value="${escapeHtml(item.phone)}">
+                  <button type="submit" class="secondary">Bloquear</button>
+                </form>
+              ` : `
+                <form method="post" action="/api/admin">
+                  <input type="hidden" name="action" value="enable_authorized_customer_id">
+                  <input type="hidden" name="channel" value="${escapeHtml(item.channel)}">
+                  <input type="hidden" name="phone" value="${escapeHtml(item.phone)}">
+                  <button type="submit">Liberar</button>
+                </form>
+              `}
+              <form method="post" action="/api/admin" onsubmit="return confirm('Apagar este cadastro autorizado?');">
+                <input type="hidden" name="action" value="delete_authorized_customer_id">
                 <input type="hidden" name="channel" value="${escapeHtml(item.channel)}">
                 <input type="hidden" name="phone" value="${escapeHtml(item.phone)}">
-                <button type="submit" class="secondary">Bloquear</button>
+                <input type="password" name="adminPassword" autocomplete="current-password" placeholder="Senha do administrador" required>
+                <button type="submit" class="danger-button">Apagar cadastro</button>
               </form>
-            ` : `
-              <form method="post" action="/api/admin">
-                <input type="hidden" name="action" value="enable_authorized_customer_id">
-                <input type="hidden" name="channel" value="${escapeHtml(item.channel)}">
-                <input type="hidden" name="phone" value="${escapeHtml(item.phone)}">
-                <button type="submit">Liberar</button>
-              </form>
-            `}
+            </div>
           </article>
         `).join("")}
       </div>
@@ -920,6 +948,20 @@ function renderHtml(data: AdminDashboardData, options: {
     }
     .authorized-item form {
       min-width: 120px;
+    }
+    .authorized-actions {
+      display: grid;
+      gap: 8px;
+      min-width: 220px;
+    }
+    .authorized-actions form {
+      display: grid;
+      gap: 6px;
+    }
+    .authorized-actions input {
+      min-height: 32px;
+      padding: 6px 8px;
+      font-size: 12px;
     }
     .notice {
       border: 1px solid #b6ded8;

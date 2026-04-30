@@ -165,6 +165,24 @@ export async function enableAuthorizedCustomerId(channel: string, phone: string)
   `;
 }
 
+export async function deleteAuthorizedCustomerId(channel: string, phone: string): Promise<void> {
+  if (!config.databaseUrl) {
+    return;
+  }
+
+  const normalizedPhone = normalizeAuthorizedPhone(phone);
+
+  if (!normalizedPhone) {
+    return;
+  }
+
+  await getSql()`
+    DELETE FROM authorized_customer_ids
+    WHERE channel = ${channel}
+      AND phone = ${normalizedPhone}
+  `;
+}
+
 export async function loadAuthorizedCustomerIds(channel?: string): Promise<AuthorizedCustomerId[]> {
   if (!config.databaseUrl) {
     return [];
