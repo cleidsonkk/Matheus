@@ -56,17 +56,17 @@ export function buildCustomerMessage(result: MessageInput): string {
   if (result.status === "limite_excedido") {
     const credit = result.credit;
     const lines = [
-      "⚠️ Este bilhete ultrapassa seu limite atual.",
-      `Código: ${result.codigo_bilhete}`
+      "\u26a0\ufe0f Este bilhete ultrapassa seu limite atual.",
+      `C\u00f3digo: ${result.codigo_bilhete}`
     ];
 
     if (credit?.limit !== undefined) {
       lines.push(`Seu limite: ${formatMoney(credit.limit)}`);
-      lines.push(`Em aberto: ${formatMoney(credit.outstanding)} · Bilhete: ${formatMoney(credit.ticketAmount ?? 0)}`);
-      lines.push(`Disponível agora: ${formatMoney(credit.available)}`);
+      lines.push(`Em aberto: ${formatMoney(credit.outstanding)} \u00b7 Bilhete: ${formatMoney(credit.ticketAmount ?? 0)}`);
+      lines.push(`Dispon\u00edvel agora: ${formatMoney(credit.available)}`);
 
       if ((credit.requiredPayment ?? 0) > 0) {
-        lines.push(`Para confirmar, faça pagamento mínimo de ${formatMoney(credit.requiredPayment ?? 0)}.`);
+        lines.push(`Para confirmar, fa\u00e7a pagamento m\u00ednimo de ${formatMoney(credit.requiredPayment ?? 0)}.`);
       }
     }
 
@@ -76,19 +76,19 @@ export function buildCustomerMessage(result: MessageInput): string {
 
   if (result.confirmado) {
     const lines = [
-      "✅ Bilhete confirmado com sucesso!",
-      `Código: ${result.codigo_bilhete}`
+      "\u2705 Bilhete confirmado com sucesso!",
+      `C\u00f3digo: ${result.codigo_bilhete}`
     ];
 
     if (result.codigo_confirmacao) {
-      lines.push(`Confirmação: ${result.codigo_confirmacao}`);
+      lines.push(`Confirma\u00e7\u00e3o: ${result.codigo_confirmacao}`);
     }
 
     if (result.credit?.available !== undefined) {
-      lines.push(`Limite disponível: ${formatMoney(result.credit.available)}`);
+      lines.push(`Limite dispon\u00edvel: ${formatMoney(result.credit.available)}`);
     }
 
-    lines.push("Guarde este comprovante. Boa sorte! 🍀");
+    lines.push("Guarde este comprovante. Boa sorte! \ud83c\udf40");
     return lines.join("\n");
   }
 
@@ -96,16 +96,16 @@ export function buildCustomerMessage(result: MessageInput): string {
     const statusDescription = getStatusDescription(result);
 
     return [
-      "✅ Bilhete localizado.",
-      `Código: ${result.codigo_bilhete}`,
-      statusDescription ? `Status: ${statusDescription}` : "Status: já confirmado",
-      "Este bilhete não está pendente de confirmação."
+      "\u2705 Bilhete localizado.",
+      `C\u00f3digo: ${result.codigo_bilhete}`,
+      statusDescription ? `Status: ${statusDescription}` : "Status: j\u00e1 confirmado",
+      "Este bilhete n\u00e3o est\u00e1 pendente de confirma\u00e7\u00e3o."
     ].join("\n");
   }
 
   if (result.status === "nao_encontrado") {
     return [
-      "⚠️ Não conseguimos localizar o código informado.",
+      "\u26a0\ufe0f N\u00e3o conseguimos localizar o c\u00f3digo informado.",
       "Verifique se digitou corretamente e envie novamente."
     ].join("\n");
   }
@@ -123,28 +123,28 @@ export function buildCustomerMessage(result: MessageInput): string {
   }
 
   return [
-    "🔄 Tivemos uma instabilidade ao consultar seu bilhete.",
+    "\ud83d\udd04 Tivemos uma instabilidade ao consultar seu bilhete.",
     "Tente novamente em alguns minutos."
   ].join("\n");
 }
 
 export function buildExtractionFailureMessage(): string {
   return [
-    "⚠️ Não consegui identificar o código do bilhete.",
-    "Envie o código com 12 caracteres, com ou sem espaços.",
+    "\u26a0\ufe0f N\u00e3o consegui identificar o c\u00f3digo do bilhete.",
+    "Envie o c\u00f3digo com 12 caracteres, com ou sem espa\u00e7os.",
     "Exemplo: ABCD 1234 WXYZ"
   ].join("\n");
 }
 
 export function buildMultipleCodesMessage(summary: CustomerCreditSummary | null): string {
   const lines = [
-    "⚠️ Envie apenas 1 código de bilhete por vez.",
-    "Assim consigo validar o limite e confirmar com segurança."
+    "\u26a0\ufe0f Envie apenas 1 c\u00f3digo de bilhete por vez.",
+    "Assim consigo validar o limite e confirmar com seguran\u00e7a."
   ];
 
   if (summary) {
     lines.push(`Seu limite: ${formatMoney(summary.limit)}`);
-    lines.push(`Disponível agora: ${formatMoney(summary.available)}`);
+    lines.push(`Dispon\u00edvel agora: ${formatMoney(summary.available)}`);
   }
 
   return lines.join("\n");
@@ -152,8 +152,8 @@ export function buildMultipleCodesMessage(summary: CustomerCreditSummary | null)
 
 export function buildTelegramWelcomeMessage(): string {
   return [
-    "Olá! Envie o código do bilhete para validação.",
-    "Pode mandar com espaços ou tudo junto.",
+    "Ol\u00e1! Envie o c\u00f3digo do bilhete para valida\u00e7\u00e3o.",
+    "Pode mandar com espa\u00e7os ou tudo junto.",
     "Para aparecer com celular no painel, toque em Compartilhar meu telefone.",
     "Exemplo: ABCD 1234 WXYZ"
   ].join("\n");
@@ -161,15 +161,23 @@ export function buildTelegramWelcomeMessage(): string {
 
 export function buildTelegramContactRegisteredMessage(phoneNumber: string): string {
   return [
-    "✅ Telefone cadastrado com sucesso.",
+    "\u2705 Telefone cadastrado com sucesso.",
     `Celular: ${phoneNumber}`,
-    "Agora envie 1 código de bilhete por vez."
+    "Agora envie 1 c\u00f3digo de bilhete por vez."
   ].join("\n");
 }
 
 export function buildTelegramContactRejectedMessage(): string {
   return [
-    "⚠️ Para sua segurança, envie o seu próprio contato pelo botão Compartilhar meu telefone.",
-    "Depois envie 1 código de bilhete por vez."
+    "\u26a0\ufe0f Para sua seguran\u00e7a, envie o seu pr\u00f3prio contato pelo bot\u00e3o Compartilhar meu telefone.",
+    "Depois envie 1 c\u00f3digo de bilhete por vez."
+  ].join("\n");
+}
+
+export function buildUnauthorizedCustomerMessage(): string {
+  return [
+    "Seu n\u00famero ainda n\u00e3o est\u00e1 habilitado para validar bilhetes neste atendimento.",
+    "Por favor, solicite ao administrador o cadastro do seu celular para liberar a confirma\u00e7\u00e3o.",
+    "Assim que o cadastro for conclu\u00eddo, envie novamente o c\u00f3digo do bilhete."
   ].join("\n");
 }

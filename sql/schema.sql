@@ -108,6 +108,20 @@ CREATE INDEX IF NOT EXISTS customer_profiles_phone_number_idx
   ON customer_profiles (phone_number)
   WHERE phone_number IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS authorized_customer_ids (
+  channel text NOT NULL DEFAULT 'whatsapp',
+  phone text NOT NULL,
+  customer_name text,
+  note text,
+  enabled boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (channel, phone)
+);
+
+CREATE INDEX IF NOT EXISTS authorized_customer_ids_enabled_idx
+  ON authorized_customer_ids (channel, enabled, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS security_events (
   id uuid PRIMARY KEY,
   event_type text NOT NULL,

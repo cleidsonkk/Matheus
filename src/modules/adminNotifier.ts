@@ -1,13 +1,13 @@
 import { config } from "../config.js";
 import { log } from "../logger.js";
 import type { InboundMessage, TicketConfirmationResult, ValidationJob } from "../types.js";
-import { loadAdminTelegramTargets, markAdminTelegramTargetNotified, syncConfiguredAdminTelegramTargets } from "./adminNotificationTargets.js";
+import { loadAdminTelegramTargets, markAdminNotificationTargetNotified, syncConfiguredAdminTelegramTargets } from "./adminNotificationTargets.js";
 import { extractTicketFinancials, formatMoney, getCustomerCreditSummary, type CustomerCreditSummary } from "./credit.js";
 import { customerIdentityFromInbound, formatPhoneNumber, getCustomerProfile } from "./customerProfile.js";
-import { TelegramClient } from "./telegram.js";
+import { sendText } from "./notifier.js";
 
-const telegram = new TelegramClient();
 const TELEGRAM_MESSAGE_LIMIT = 3900;
+const WHATSAPP_MESSAGE_LIMIT = 1000;
 
 type SendAdminMessageResult = {
   targets: number;
@@ -164,20 +164,51 @@ function gameLines(data: Record<string, unknown> | null): string[] {
   return lines;
 }
 
-function splitMessage(text: string): string[] {
-  if (text.length <= TELEGRAM_MESSAGE_LIMIT) {
-    return [text];
+function messageLimit(channel: "telegram" | "whatsapp"): number {
+  return channel === "telegram" ? TELEGRAM_MESSAGE_LIMIT : WHATSAPP_MESSAGE_LIMIT;
+}
+
+export function splitAdminNotificationMessage(text: string, channel: "telegram" | "whatsapp"): string[] {
+  const limit = messageLimit(channel);
+  const normalized = text.trim();
+
+  if (!normalized) {
+    return [];
+  }
+
+  if (normalized.length <= limit) {
+    return [normalized];
   }
 
   const chunks: string[] = [];
   let current = "";
 
-  for (const line of text.split("\n")) {
-    if ((current + "\n" + line).length > TELEGRAM_MESSAGE_LIMIT) {
-      chunks.push(current.trim());
+  for (const rawLine of normalized.split("\n")) {
+    let line = rawLine;
+
+    while (line.length > limit) {
+      if (current.trim()) {
+        chunks.push(current.trim());
+        current = "";
+      }
+
+      chunks.push(line.slice(0, limit).trim());
+      line = line.slice(limit);
+    }
+
+    if (!line) {
+      continue;
+    }
+
+    const next = current ? `${current}\n${line}` : line;
+
+    if (next.length > limit) {
+      if (current.trim()) {
+        chunks.push(current.trim());
+      }
       current = line;
     } else {
-      current = current ? `${current}\n${line}` : line;
+      current = next;
     }
   }
 
@@ -194,25 +225,41 @@ async function sendAdminMessage(text: string): Promise<SendAdminMessageResult> {
   const targets = await loadAdminTelegramTargets();
 
   if (targets.length === 0) {
-    log("warn", "Nenhum destino Telegram do administrador configurado", {
-      hint: "Envie /admin <senha-do-painel> no bot para ativar as notificacoes."
+    log("warn", "Nenhum destino do administrador configurado", {
+      channel: config.adminNotifications.channel,
+      hint: config.adminNotifications.channel === "whatsapp"
+        ? "Defina ADMIN_WHATSAPP_NUMBERS no ambiente para ativar as notificacoes."
+        : "Envie /admin <senha-do-painel> no bot para ativar as notificacoes."
     });
     return { targets: 0, messages: 0 };
   }
 
-  const chunks = splitMessage(text);
+  let successfulTargets = 0;
+  let successfulMessages = 0;
 
   await Promise.all(targets.map(async (target) => {
-    for (const chunk of chunks) {
-      await telegram.sendText(target.targetId, chunk);
-    }
+    try {
+      const chunks = splitAdminNotificationMessage(text, target.channel);
 
-    await markAdminTelegramTargetNotified(target.targetId);
+      for (const chunk of chunks) {
+        await sendText(target.channel, target.targetId, chunk);
+      }
+
+      await markAdminNotificationTargetNotified(target.channel, target.targetId);
+      successfulTargets += 1;
+      successfulMessages += chunks.length;
+    } catch (error) {
+      log("warn", "Falha ao enviar notificacao administrativa para destino especifico", {
+        channel: target.channel,
+        targetId: target.targetId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }));
 
   return {
-    targets: targets.length,
-    messages: targets.length * chunks.length
+    targets: successfulTargets,
+    messages: successfulMessages
   };
 }
 
@@ -226,7 +273,9 @@ export async function sendAdminTestNotification(): Promise<SendAdminMessageResul
     "[TESTE] Notificacao administrativa ativa",
     `Horario: ${formatDateTime(new Date().toISOString())}`,
     "Evento: teste manual pelo painel admin",
-    "Se esta mensagem chegou, o Telegram do administrador esta cadastrado corretamente."
+    config.adminNotifications.channel === "whatsapp"
+      ? "Se esta mensagem chegou, o WhatsApp do administrador esta configurado corretamente."
+      : "Se esta mensagem chegou, o Telegram do administrador esta cadastrado corretamente."
   ];
   const url = panelUrl();
 

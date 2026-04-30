@@ -5,13 +5,15 @@ import type { InboundMessage, ValidationJob } from "../types.js";
 import { handleAdminNotificationCommand } from "./adminNotificationCommand.js";
 import { notifyAdminContactUpdate, notifyAdminExtractionFailure, notifyAdminSafely } from "./adminNotifier.js";
 import { getCustomerCreditSummary } from "./credit.js";
+import { isCustomerAuthorized } from "./customerAuthorization.js";
 import { formatPhoneNumber, isTelegramContactMessage, upsertCustomerProfileFromInbound, upsertTelegramContact } from "./customerProfile.js";
 import {
   buildExtractionFailureMessage,
   buildMultipleCodesMessage,
   buildTelegramContactRegisteredMessage,
   buildTelegramContactRejectedMessage,
-  buildTelegramWelcomeMessage
+  buildTelegramWelcomeMessage,
+  buildUnauthorizedCustomerMessage
 } from "./messageBuilder.js";
 import { requestTelegramContact, sendText } from "./notifier.js";
 import { createValidationJob, hasDatabase, recordExtractionFailure } from "./persistence.js";
@@ -38,6 +40,23 @@ export async function prepareInboundForProcessing(inbound: InboundMessage): Prom
       error: error instanceof Error ? error.message : String(error)
     });
   });
+
+  if (inbound.channel === "whatsapp") {
+    const authorized = await isCustomerAuthorized(inbound.channel, inbound.recipientId).catch((error) => {
+      log("error", "Falha ao validar cadastro autorizado do cliente", {
+        channel: inbound.channel,
+        recipientId: inbound.recipientId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+
+      return false;
+    });
+
+    if (!authorized) {
+      await sendText(inbound.channel, inbound.recipientId, buildUnauthorizedCustomerMessage());
+      return { kind: "ignored", reason: "customer_not_authorized" };
+    }
+  }
 
   if (isTelegramContactMessage(inbound)) {
     const result = await upsertTelegramContact(inbound);

@@ -5,7 +5,7 @@ import { log } from "../logger.js";
 let sqlClient: NeonQueryFunction<false, false> | null = null;
 
 export type AdminNotificationTarget = {
-  channel: "telegram";
+  channel: "telegram" | "whatsapp";
   targetId: string;
   displayName: string | null;
   username: string | null;
@@ -24,7 +24,41 @@ function getSql(): NeonQueryFunction<false, false> {
   return sqlClient;
 }
 
+function preferredChannel(): "telegram" | "whatsapp" {
+  return config.adminNotifications.channel === "whatsapp" ? "whatsapp" : "telegram";
+}
+
+function normalizeTargetId(channel: "telegram" | "whatsapp", targetId: string): string {
+  if (channel !== "whatsapp") {
+    return targetId.trim();
+  }
+
+  const digits = targetId.replace(/\D/g, "");
+
+  if (!digits) {
+    return "";
+  }
+
+  // Meta WhatsApp expects the country code. When the admin provides only the
+  // Brazilian local mobile number, prefix it with 55 automatically.
+  if (!digits.startsWith("55") && (digits.length === 10 || digits.length === 11)) {
+    return `55${digits}`;
+  }
+
+  return digits;
+}
+
 function envTargets(): AdminNotificationTarget[] {
+  if (preferredChannel() === "whatsapp") {
+    return config.adminNotifications.whatsappNumbers.map((targetId) => ({
+      channel: "whatsapp",
+      targetId: normalizeTargetId("whatsapp", targetId),
+      displayName: "Configurado no ambiente",
+      username: null,
+      source: "env"
+    }));
+  }
+
   return config.adminNotifications.telegramChatIds.map((targetId) => ({
     channel: "telegram",
     targetId,
@@ -55,7 +89,7 @@ function uniqueTargets(targets: AdminNotificationTarget[]): AdminNotificationTar
 export async function syncConfiguredAdminTelegramTargets(): Promise<number> {
   const targets = envTargets();
 
-  if (!config.databaseUrl || targets.length === 0) {
+  if (!config.databaseUrl || targets.length === 0 || preferredChannel() !== "telegram") {
     return 0;
   }
 
@@ -94,7 +128,7 @@ export async function syncConfiguredAdminTelegramTargets(): Promise<number> {
 export async function loadAdminTelegramTargets(): Promise<AdminNotificationTarget[]> {
   const targets = envTargets();
 
-  if (!config.databaseUrl) {
+  if (!config.databaseUrl || preferredChannel() !== "telegram") {
     return uniqueTargets(targets);
   }
 
@@ -129,11 +163,18 @@ export async function countAdminTelegramTargets(): Promise<number> {
   return (await loadAdminTelegramTargets()).length;
 }
 
-export async function upsertAdminTelegramTarget(input: {
+export async function countAdminNotificationTargets(): Promise<number> {
+  return (await loadAdminTelegramTargets()).length;
+}
+
+export async function upsertAdminNotificationTarget(input: {
+  channel: "telegram" | "whatsapp";
   targetId: string;
   displayName: string | null;
   username: string | null;
 }): Promise<void> {
+  const normalizedTargetId = normalizeTargetId(input.channel, input.targetId);
+
   await getSql()`
     INSERT INTO admin_notification_targets (
       channel,
@@ -143,8 +184,8 @@ export async function upsertAdminTelegramTarget(input: {
       enabled
     )
     VALUES (
-      'telegram',
-      ${input.targetId},
+      ${input.channel},
+      ${normalizedTargetId},
       ${input.displayName},
       ${input.username},
       true
@@ -157,7 +198,27 @@ export async function upsertAdminTelegramTarget(input: {
   `;
 }
 
+export async function upsertAdminTelegramTarget(input: {
+  targetId: string;
+  displayName: string | null;
+  username: string | null;
+}): Promise<void> {
+  await upsertAdminNotificationTarget({
+    channel: "telegram",
+    targetId: input.targetId,
+    displayName: input.displayName,
+    username: input.username
+  });
+}
+
 export async function markAdminTelegramTargetNotified(targetId: string): Promise<void> {
+  await markAdminNotificationTargetNotified("telegram", targetId);
+}
+
+export async function markAdminNotificationTargetNotified(
+  channel: "telegram" | "whatsapp",
+  targetId: string
+): Promise<void> {
   if (!config.databaseUrl) {
     return;
   }
@@ -166,7 +227,7 @@ export async function markAdminTelegramTargetNotified(targetId: string): Promise
     await getSql()`
       UPDATE admin_notification_targets
       SET last_notified_at = now(), updated_at = now()
-      WHERE channel = 'telegram'
+      WHERE channel = ${channel}
         AND target_id = ${targetId}
     `;
   } catch (error) {

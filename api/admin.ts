@@ -2,8 +2,17 @@ import { randomUUID } from "node:crypto";
 import { config } from "../src/config.js";
 import { isAdminRequestAuthorized, verifyAdminCredentials } from "../src/modules/adminAuth.js";
 import { clearOperationalData, deleteValidationJobById } from "../src/modules/adminCleanup.js";
-import { countAdminTelegramTargets } from "../src/modules/adminNotificationTargets.js";
+import { countAdminNotificationTargets } from "../src/modules/adminNotificationTargets.js";
 import { sendAdminTestNotification } from "../src/modules/adminNotifier.js";
+import {
+  disableAuthorizedCustomerId,
+  enableAuthorizedCustomerId,
+  loadAuthorizedCustomerIds,
+  normalizeAuthorizedPhone,
+  saveAuthorizedCustomerId,
+  type AuthorizedCustomerId
+} from "../src/modules/customerAuthorization.js";
+import { formatPhoneNumber } from "../src/modules/customerProfile.js";
 import {
   type AdminBreakdown,
   type AdminCustomerSummary,
@@ -150,12 +159,64 @@ async function handleAdminAction(req: any, res: any): Promise<void> {
     }
 
     const result = await sendAdminTestNotification();
+    const channel = adminNotificationChannelLabel();
     redirectToAdmin(
       res,
       result.targets > 0
-        ? `Teste enviado para ${result.targets} Telegram(s) administrativo(s).`
-        : "Nenhum Telegram administrativo cadastrado. Envie /admin sua-senha no bot."
+        ? `Teste enviado para ${result.targets} destino(s) administrativo(s) via ${channel}.`
+        : config.adminNotifications.channel === "whatsapp"
+          ? "Nenhum WhatsApp administrativo configurado. Defina ADMIN_WHATSAPP_NUMBERS no ambiente."
+          : "Nenhum Telegram administrativo cadastrado. Envie /admin sua-senha no bot."
     );
+    return;
+  }
+
+  if (action === "save_authorized_customer_id") {
+    const channel = form.get("channel") ?? "whatsapp";
+    const phone = form.get("phone") ?? "";
+    const customerName = form.get("customerName") ?? "";
+    const note = form.get("note") ?? "";
+
+    if (!normalizeAuthorizedPhone(phone)) {
+      res.status(400).send("Celular invalido.");
+      return;
+    }
+
+    await saveAuthorizedCustomerId({
+      channel,
+      phone,
+      customerName: customerName.trim() || null,
+      note: note.trim() || null
+    });
+    redirectToAdmin(res, "ID de celular cadastrado com sucesso.");
+    return;
+  }
+
+  if (action === "disable_authorized_customer_id") {
+    const channel = form.get("channel") ?? "whatsapp";
+    const phone = form.get("phone") ?? "";
+
+    if (!normalizeAuthorizedPhone(phone)) {
+      res.status(400).send("Celular invalido.");
+      return;
+    }
+
+    await disableAuthorizedCustomerId(channel, phone);
+    redirectToAdmin(res, "ID de celular bloqueado com sucesso.");
+    return;
+  }
+
+  if (action === "enable_authorized_customer_id") {
+    const channel = form.get("channel") ?? "whatsapp";
+    const phone = form.get("phone") ?? "";
+
+    if (!normalizeAuthorizedPhone(phone)) {
+      res.status(400).send("Celular invalido.");
+      return;
+    }
+
+    await enableAuthorizedCustomerId(channel, phone);
+    redirectToAdmin(res, "ID de celular liberado com sucesso.");
     return;
   }
 
@@ -290,6 +351,10 @@ function channelLabel(channel: string): string {
   };
 
   return labels[channel] ?? channel;
+}
+
+function adminNotificationChannelLabel(): string {
+  return config.adminNotifications.channel === "whatsapp" ? "WhatsApp" : "Telegram";
 }
 
 function statusClass(status: string, confirmed = false): string {
@@ -583,15 +648,18 @@ function renderNotice(notice: string): string {
 }
 
 function renderAdminNotificationsPanel(targetCount: number): string {
+  const channel = adminNotificationChannelLabel();
+  const description = config.adminNotifications.channel === "whatsapp"
+    ? "As notificacoes administrativas serao enviadas para os numeros configurados no ambiente. Use o teste abaixo para validar o recebimento."
+    : "Para ativar neste Telegram, abra o bot do administrador e envie <code>/admin sua-senha-do-painel</code>. Depois use o teste abaixo.";
+
   return `
     <section class="panel notify-panel" aria-label="Notificacoes administrativas">
       <div>
         <span class="eyebrow">Notificacoes reais</span>
-        <h2>Telegram do administrador</h2>
-        <p class="muted">
-          Para ativar neste Telegram, abra o bot do administrador e envie <code>/admin sua-senha-do-painel</code>. Depois use o teste abaixo.
-        </p>
-        <small>${formatInteger(targetCount)} Telegram(s) administrativo(s) cadastrado(s).</small>
+        <h2>${escapeHtml(channel)} do administrador</h2>
+        <p class="muted">${description}</p>
+        <small>${formatInteger(targetCount)} destino(s) administrativo(s) ativo(s) via ${escapeHtml(channel)}.</small>
       </div>
       <form method="post" action="/api/admin" class="notify-form">
         <input type="hidden" name="action" value="send_admin_notification_test">
@@ -601,6 +669,60 @@ function renderAdminNotificationsPanel(targetCount: number): string {
         </label>
         <button type="submit">Enviar teste</button>
       </form>
+    </section>
+  `;
+}
+
+function renderAuthorizedCustomerIdsPanel(items: AuthorizedCustomerId[]): string {
+  return `
+    <section class="panel" aria-label="IDs autorizados">
+      <div class="section-heading">
+        <h2>IDs autorizados por celular</h2>
+        <small>Somente estes numeros podem enviar codigo para confirmacao.</small>
+      </div>
+      <form method="post" action="/api/admin" class="notify-form">
+        <input type="hidden" name="action" value="save_authorized_customer_id">
+        <input type="hidden" name="channel" value="whatsapp">
+        <label>
+          <span>Celular</span>
+          <input name="phone" inputmode="numeric" placeholder="5511999999999" required>
+        </label>
+        <label>
+          <span>Nome do cliente</span>
+          <input name="customerName" placeholder="Nome para identificacao">
+        </label>
+        <label>
+          <span>Observacao</span>
+          <input name="note" placeholder="Opcional">
+        </label>
+        <button type="submit">Cadastrar ID</button>
+      </form>
+      <div class="authorized-list">
+        ${items.length === 0 ? "<p class=\"empty-text\">Nenhum celular autorizado cadastrado ainda.</p>" : items.map((item) => `
+          <article class="authorized-item ${item.enabled ? "" : "disabled"}">
+            <div>
+              <strong>${escapeHtml(formatPhoneNumber(item.phone) ?? item.phone)}</strong>
+              <small>${escapeHtml(channelLabel(item.channel))}${item.customerName ? ` · ${escapeHtml(item.customerName)}` : ""}</small>
+              <small>${escapeHtml(item.note ?? "Sem observacao")} · Atualizado em ${escapeHtml(formatDate(item.updatedAt))}</small>
+            </div>
+            ${item.enabled ? `
+              <form method="post" action="/api/admin">
+                <input type="hidden" name="action" value="disable_authorized_customer_id">
+                <input type="hidden" name="channel" value="${escapeHtml(item.channel)}">
+                <input type="hidden" name="phone" value="${escapeHtml(item.phone)}">
+                <button type="submit" class="secondary">Bloquear</button>
+              </form>
+            ` : `
+              <form method="post" action="/api/admin">
+                <input type="hidden" name="action" value="enable_authorized_customer_id">
+                <input type="hidden" name="channel" value="${escapeHtml(item.channel)}">
+                <input type="hidden" name="phone" value="${escapeHtml(item.phone)}">
+                <button type="submit">Liberar</button>
+              </form>
+            `}
+          </article>
+        `).join("")}
+      </div>
     </section>
   `;
 }
@@ -628,7 +750,11 @@ function renderCleanupPanel(data: AdminDashboardData): string {
   `;
 }
 
-function renderHtml(data: AdminDashboardData, options: { notice: string; adminTelegramTargets: number }): string {
+function renderHtml(data: AdminDashboardData, options: {
+  notice: string;
+  adminNotificationTargets: number;
+  authorizedCustomerIds: AuthorizedCustomerId[];
+}): string {
   const averageTicket = data.totals.tickets > 0 ? data.totals.amount / data.totals.tickets : 0;
   const lastUpdate = formatDate(data.generatedAt);
   const dataUrl = buildAdminUrl(data, { format: "json" });
@@ -769,6 +895,31 @@ function renderHtml(data: AdminDashboardData, options: { notice: string; adminTe
       display: grid;
       gap: 8px;
       min-width: 0;
+    }
+    .authorized-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .authorized-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface-soft);
+      padding: 10px 12px;
+    }
+    .authorized-item.disabled {
+      opacity: .75;
+    }
+    .authorized-item strong,
+    .authorized-item small {
+      display: block;
+    }
+    .authorized-item form {
+      min-width: 120px;
     }
     .notice {
       border: 1px solid #b6ded8;
@@ -1093,7 +1244,7 @@ function renderHtml(data: AdminDashboardData, options: { notice: string; adminTe
       .top-actions { justify-content: flex-start; width: 100%; }
       .live, .logout { flex: 1 1 130px; }
       h1 { font-size: 22px; }
-      .filters, .notify-panel, .cleanup-panel, .metrics, .split, .ticket-grid, .message-grid { grid-template-columns: 1fr; }
+      .filters, .notify-panel, .cleanup-panel, .metrics, .split, .ticket-grid, .message-grid, .authorized-item { grid-template-columns: 1fr; }
       .filters {
         gap: 8px;
         padding: 10px;
@@ -1195,7 +1346,8 @@ function renderHtml(data: AdminDashboardData, options: { notice: string; adminTe
 
     ${renderFilters(data)}
     ${renderNotice(options.notice)}
-    ${renderAdminNotificationsPanel(options.adminTelegramTargets)}
+    ${renderAdminNotificationsPanel(options.adminNotificationTargets)}
+    ${renderAuthorizedCustomerIdsPanel(options.authorizedCustomerIds)}
     ${renderCleanupPanel(data)}
 
     <section class="metrics" aria-label="Indicadores">
@@ -1343,10 +1495,11 @@ export default async function handler(req: any, res: any): Promise<void> {
       return;
     }
 
-    const adminTelegramTargets = await countAdminTelegramTargets();
+    const adminNotificationTargets = await countAdminNotificationTargets();
+    const authorizedCustomerIds = await loadAuthorizedCustomerIds("whatsapp");
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.status(200).send(renderHtml(data, { notice, adminTelegramTargets }));
+    res.status(200).send(renderHtml(data, { notice, adminNotificationTargets, authorizedCustomerIds }));
   } catch (error) {
     console.error(error);
     res.status(500).send("Erro ao carregar o painel administrativo.");

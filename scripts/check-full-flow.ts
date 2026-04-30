@@ -4,14 +4,17 @@ import {
   applyPaymentToCredit,
   requiredPaymentForTicket
 } from "../src/modules/credit.js";
+import { normalizeAuthorizedPhone } from "../src/modules/customerAuthorization.js";
 import { formatPhoneNumber, isTelegramContactMessage } from "../src/modules/customerProfile.js";
 import {
   buildCustomerMessage,
   buildExtractionFailureMessage,
   buildMultipleCodesMessage,
   buildTelegramContactRegisteredMessage,
-  buildTelegramWelcomeMessage
+  buildTelegramWelcomeMessage,
+  buildUnauthorizedCustomerMessage
 } from "../src/modules/messageBuilder.js";
+import { splitAdminNotificationMessage } from "../src/modules/adminNotifier.js";
 import { parseAdminNotificationCommand } from "../src/modules/adminNotificationCommand.js";
 import { parseInboundTelegramMessage } from "../src/modules/telegramWebhookParser.js";
 import { extractTicketCode, extractTicketCodes } from "../src/modules/ticketExtractor.js";
@@ -69,6 +72,13 @@ assertIncludes(buildTelegramWelcomeMessage(), "Compartilhar meu telefone", "welc
 assertEqual(parseAdminNotificationCommand("/admin 2606"), "2606", "admin notification command must extract password");
 assertEqual(parseAdminNotificationCommand("/notificacoes senha forte"), "senha forte", "admin notification command must accept alias");
 assertEqual(parseAdminNotificationCommand("/start"), null, "normal Telegram command must not be treated as admin registration");
+assertEqual(splitAdminNotificationMessage("ok", "telegram").length, 1, "short admin message must stay in one chunk");
+
+const longAdminMessage = `Cabecalho\n${"A".repeat(4005)}\nRodape`;
+const longAdminChunks = splitAdminNotificationMessage(longAdminMessage, "telegram");
+assert(longAdminChunks.length >= 2, "long admin message must be split");
+assert(longAdminChunks.every((chunk) => chunk.length > 0), "admin message chunks must never be empty");
+assert(longAdminChunks.every((chunk) => chunk.length <= 3900), "telegram admin message chunks must respect Telegram limit");
 
 const contactUpdate = {
   update_id: 1002,
@@ -100,7 +110,13 @@ assert(contactInbound, "telegram contact must be parsed");
 assert(isTelegramContactMessage(contactInbound!), "telegram contact must be detected");
 assertEqual(contactInbound?.contactPhone, "5579999105302", "contact phone must be extracted");
 assertEqual(formatPhoneNumber(contactInbound?.contactPhone ?? null), "+55 79 9 9910-5302", "phone must be formatted for admin");
-assertIncludes(buildTelegramContactRegisteredMessage(formatPhoneNumber(contactInbound?.contactPhone ?? null) ?? ""), "+55 79 9 9910-5302", "contact confirmation must show phone");
+assertIncludes(
+  buildTelegramContactRegisteredMessage(formatPhoneNumber(contactInbound?.contactPhone ?? null) ?? ""),
+  "+55 79 9 9910-5302",
+  "contact confirmation must show phone"
+);
+assertEqual(normalizeAuthorizedPhone("(79) 99910-5302"), "5579999105302", "authorized phone must normalize local mobile number");
+assertIncludes(buildUnauthorizedCustomerMessage(), "ainda", "unauthorized response must explain missing registration");
 
 const ticketMessage = "confirma pra mim V072ZHQWNZV9";
 const extraction = extractTicketCode(ticketMessage);
@@ -141,7 +157,7 @@ assertIncludes(buildMultipleCodesMessage({
   reserved: 0,
   outstanding: 0,
   available: 150
-}), "Envie apenas 1 código", "multiple-code response must block batch confirmation");
+}), "Envie apenas 1 c\u00f3digo", "multiple-code response must block batch confirmation");
 
 assertIncludes(buildExtractionFailureMessage(), "12 caracteres", "invalid-code response must explain the expected code size");
 
@@ -172,7 +188,7 @@ const confirmedResult: TicketConfirmationResult = {
   credit: afterFirstTicket
 };
 
-assertIncludes(buildCustomerMessage(confirmedResult), "Limite disponível: R$ 140,00", "confirmation response must show remaining limit");
+assertIncludes(buildCustomerMessage(confirmedResult), "Limite dispon\u00edvel: R$ 140,00", "confirmation response must show remaining limit");
 
 const exhaustedCredit: CreditSnapshot = {
   limited: true,
@@ -204,7 +220,7 @@ const blockedResult: TicketConfirmationResult = {
 };
 
 const blockedMessage = buildCustomerMessage(blockedResult);
-assertIncludes(blockedMessage, "Para confirmar, faça pagamento mínimo de R$ 10,00.", "blocked response must show minimum payment");
+assertIncludes(blockedMessage, "Para confirmar, fa\u00e7a pagamento m\u00ednimo de R$ 10,00.", "blocked response must show minimum payment");
 assert(!blockedMessage.includes("Bilhete confirmado"), "blocked response must not look like a confirmation");
 
 const siteErrorResult: TicketConfirmationResult = {

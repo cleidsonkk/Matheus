@@ -51,7 +51,9 @@ export const config = {
   jobConcurrency: intFromEnv(process.env.JOB_CONCURRENCY, 1),
   customerDefaultCreditLimit: floatFromEnv(process.env.CUSTOMER_DEFAULT_CREDIT_LIMIT, 150),
   adminNotifications: {
+    channel: (process.env.ADMIN_NOTIFICATION_CHANNEL ?? "telegram").toLowerCase(),
     telegramChatIds: listFromEnv(process.env.ADMIN_TELEGRAM_CHAT_IDS),
+    whatsappNumbers: listFromEnv(process.env.ADMIN_WHATSAPP_NUMBERS),
     lowCreditPercent: floatFromEnv(process.env.ADMIN_LOW_CREDIT_PERCENT, 20)
   },
   whatsapp: {
